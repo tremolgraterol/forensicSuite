@@ -1,0 +1,15 @@
+# ForensicSuite - Dependencias
+# ============================
+# Framework de Análisis Forense Digital
+# Protocolos: ISO 27037 / NIST SP 800-86 / RFC 3227
+
+# --- Dependencias de sistema (requieren sudo para instalar) ---
+# util-linux      → blockdev, losetup, lsblk, findmnt (pre-instalado en Debian/Ubuntu)
+# gnupg           → Firma digital GPG (apt install gnupg)
+# openssl         → Sellos de tiempo RFC 3161, cifrado (apt install openssl)
+# hdparm          → Opcional/fallback para discos IDE/SATA legacy (no confiable en USB/NVMe/SSD)
+
+# --- Dependencias Python (alineadas con pyproject.toml) ---
+psutil>=5.9.0
+cryptography>=41.0.0
+requests>=2.28.0

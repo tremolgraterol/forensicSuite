@@ -1,0 +1,17 @@
+# ForensicSuite - Bloqueo Automático de Escritura
+# ================================================
+# Plantilla de referencia. La regla real se genera dinámicamente
+# durante la instalación con forensic_blockerd --install, usando
+# el disco raíz detectado en ese momento.
+#
+# IMPORTANTE: No instalar este archivo manualmente sin excluir
+# el disco raíz del sistema operativo.
+#
+# Protocolo: ISO 27037 / NIST SP 800-86 / RFC 3227
+
+# Bloquear solo discos completos nuevos (no particiones), excluyendo raíz.
+# ACTION=="add", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="sd*|hd*", ENV{DEVNAME}!="/dev/sdX", \
+#   RUN+="/usr/sbin/blockdev --setro %E{DEVNAME}"
+#
+# ACTION=="add", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="nvme[0-9]*n[0-9]*", ENV{DEVNAME}!="/dev/nvme0n1", \
+#   RUN+="/usr/sbin/blockdev --setro %E{DEVNAME}"

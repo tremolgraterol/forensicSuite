@@ -1,0 +1,1472 @@
+#!/bin/bash
+set -euo pipefail
+
+VERSION="2.5.0"
+PROTOCOL="ISO 27037 / NIST SP 800-86 / RFC 3227"
+LIME_MODULE="/lib/modules/$(uname -r)/updates/dkms/lime.ko.xz"
+AVML_BIN="$(command -v avml || echo '/usr/local/bin/avml')"
+AVML_SHA256="8df8e2f0b199a38ec3cd122a3dcf692820f8785d8ca49003192c7aebbaa2abb1"
+EVIDENCE_DIR="$PWD"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+ANALYSIS_DIR="${EVIDENCE_DIR}/hallazgos_${TIMESTAMP}"
+CASE_NAME="sin-caso"
+EVIDENCE_PATTERNS="*.raw *.lime *.mem *.dmp *.bin *.img *.dd *.e01 *.avml *.enc"
+CONFIG_DIR="${HOME}/.mforense"
+CONFIG_FILE="${CONFIG_DIR}/perito.conf"
+AUDIT_LOG="${EVIDENCE_DIR}/LOG_FORENSE.md"
+
+log()     { echo "[$(date +%H:%M:%S)] $*"; }
+error()   { echo "[ERROR] $*" >&2; exit 1; }
+warn()    { echo "[AVISO] $*" >&2; }
+
+# ──────────────────────────────────────────────
+# CONFIGURACIÓN PROFESIONAL DEL PERITO
+# ──────────────────────────────────────────────
+load_config() {
+    PERITO_NOMBRE="${USER}"
+    PERITO_CEDULA=""
+    PERITO_TITULO=""
+    PERITO_TRIBUNAL=""
+    PERITO_GPG_KEY=""
+    PERITO_TSA_URL=""
+    PERITO_CIFRADO="aes-256-cbc"
+    PERITO_CAUSA=""
+    PAIS="internacional"
+    HASH_PARALELO="no"
+
+    if [ -f "$CONFIG_FILE" ]; then
+        source "$CONFIG_FILE"
+    fi
+}
+
+legal_label() {
+    case "${PAIS:-internacional}" in
+        venezuela) echo "Venezuela (G.O. 37.313)" ;;
+        argentina) echo "Argentina (Ley 25.326 + Budapest)" ;;
+        *)         echo "Estándares internacionales (ISO/NIST/RFC)" ;;
+    esac
+}
+
+marco_legal_pais() {
+    case "${PAIS:-internacional}" in
+        venezuela)
+            cat << VElaw
+Ley Especial contra Delitos Informáticos (Venezuela, G.O. 37.313)
+COPP Arts. 187 (cadena de custodia), 223-225 (peritaje)
+Ley sobre Mensajes de Datos y Firmas Electrónicas Arts. 4, 6, 7
+Manual Único de Cadena de Custodia (MP 2017)
+TSJ Sentencia C25-49 (28/05/2025) — evidencia digital sigue Manual Único
+TSJ Sala Social N°523 (12/11/2024) — solo Experticia Informática es válida
+TSJ Sala Civil N°769 (24/10/2007) — el juez no sustituye al perito
+VElaw
+            ;;
+        argentina)
+            cat << ARlaw
+Código Procesal Penal Federal (Argentina)
+Ley 25.326 de Protección de Datos Personales
+Convenio de Budapest (ciberdelito)
+ISO 27037 — guía para identificación, recolección y preservación
+ARlaw
+            ;;
+        internacional|*)
+            cat << INlaw
+ISO 27037 — identificación, recolección, adquisición y preservación
+NIST SP 800-86 — guía de técnicas forenses
+RFC 3227 — orden de volatilidad en recolección de evidencia
+INlaw
+            ;;
+    esac
+}
+
+advertencia_privacidad() {
+    [ "${PAIS:-internacional}" != "venezuela" ] && return
+    echo ""
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║  ADVERTENCIA — Art. 20 LECD (G.O. 37.313)                 ║"
+    echo "╠══════════════════════════════════════════════════════════════╣"
+    echo "║  El análisis de historial de comandos (bash), variables    ║"
+    echo "║  de entorno (envvars) y argumentos de procesos puede       ║"
+    echo "║  revelar datos personales del usuario (contraseñas,        ║"
+    echo "║  tokens, cuentas, comunicaciones privadas).                ║"
+    echo "║                                                             ║"
+    echo "║  Art. 20 LECD: Violación de la privacidad de la data       ║"
+    echo "║  personal — quien revele data personal sin autorización ║"
+    echo "║  será sancionado.                                          ║"
+    echo "║                                                             ║"
+    echo "║  El perito DEBE:                                           ║"
+    echo "║  1. Limitar el análisis a lo estrictamente necesario       ║"
+    echo "║     para la investigación.                                 ║"
+    echo "║  2. No divulgar data personal no relevante al caso.        ║"
+    echo "║  3. Documentar en el informe qué data se examinó y por qué.║"
+    echo "╚══════════════════════════════════════════════════════════════╝"
+    echo ""
+}
+
+init_config() {
+    mkdir -p "$CONFIG_DIR"
+    if [ ! -f "$CONFIG_FILE" ]; then
+        cat > "$CONFIG_FILE" << EOF
+# Configuración del perito — mforense v${VERSION}
+# Este archivo debe ser firmado con GPG después de editarlo.
+# PAIS: internacional | venezuela | argentina
+
+PERITO_NOMBRE="$USER"
+PERITO_CEDULA=""
+PERITO_TITULO=""
+PERITO_TRIBUNAL=""
+PERITO_GPG_KEY=""
+PERITO_TSA_URL="http://timestamp.digicert.com"
+PERITO_CIFRADO="aes-256-cbc"
+PERITO_CAUSA=""
+PAIS="venezuela"
+HASH_PARALELO="no"
+EOF
+        chmod 600 "$CONFIG_FILE"
+        log "Configuración creada: $CONFIG_FILE"
+        log "Edítela con sus datos personales y profesionales."
+    else
+        log "Configuración existente: $CONFIG_FILE"
+    fi
+
+    # Verificar GPG
+    if [ -n "$PERITO_GPG_KEY" ]; then
+        if gpg --list-secret-keys "$PERITO_GPG_KEY" &>/dev/null; then
+            log "GPG key $PERITO_GPG_KEY: disponible"
+        else
+            warn "GPG key $PERITO_GPG_KEY no encontrada. Configure: gpg --full-generate-key"
+        fi
+    fi
+}
+
+# ──────────────────────────────────────────────
+# LOG FORENSE (bitácora con hash chain)
+# ──────────────────────────────────────────────
+audit_log() {
+    local action="$1"
+    local details="${2:-}"
+    local hash_prev="0000000000000000000000000000000000000000000000000000000000000000"
+    local ts
+    ts=$(date -Iseconds)
+
+    if [ -f "$AUDIT_LOG" ]; then
+        hash_prev=$(tail -1 "$AUDIT_LOG" | grep -o 'CHAIN=[a-f0-9]\{64\}' | cut -d= -f2 || echo "$hash_prev")
+    fi
+
+    local entry="| ${ts} | ${USER} | ${action} | ${details} | HASH=${hash_prev}"
+    local entry_hash
+    entry_hash=$(echo "$entry" | sha256sum | cut -d' ' -f1)
+
+    mkdir -p "$(dirname "$AUDIT_LOG")" 2>/dev/null || true
+
+    if [ ! -f "$AUDIT_LOG" ]; then
+        cat > "$AUDIT_LOG" << EOF
+# LOG FORENSE — mforense v${VERSION}
+# Registro cronológico de todas las acciones sobre la evidencia.
+# Cada entrada contiene el hash de la entrada anterior (hash chain).
+
+FECHA                 | OPERADOR        | ACCIÓN                      | DETALLES                     | HASH_ANTERIOR
+----------------------|-----------------|-----------------------------|------------------------------|----------------------------------
+EOF
+    fi
+
+    echo "$entry | CHAIN=${entry_hash}" >> "$AUDIT_LOG"
+}
+
+# ──────────────────────────────────────────────
+# GPG — FIRMA DIGITAL
+# ──────────────────────────────────────────────
+gpg_sign_file() {
+    local file="$1"
+    local key="${2:-$PERITO_GPG_KEY}"
+
+    [ -f "$file" ] || error "Archivo no encontrado: $file"
+
+    if [ -z "$key" ]; then
+        warn "No hay GPG key configurada. Use: mforense config"
+        warn "O firme manualmente: gpg --detach-sign --armor $file"
+        return 1
+    fi
+
+    if ! gpg --list-secret-keys "$key" &>/dev/null; then
+        warn "GPG key '$key' no disponible"
+        return 1
+    fi
+
+    gpg --detach-sign --armor --local-user "$key" "$file" 2>/dev/null && \
+        log "Archivo firmado: ${file}.asc" && \
+        audit_log "FIRMAR" "Firmado $file con GPG key $key" || \
+        warn "Error al firmar $file"
+}
+
+gpg_verify_file() {
+    local file="$1"
+    local sig="${file}.asc"
+
+    [ -f "$sig" ] || { warn "Sin firma: ${sig}"; return 1; }
+    if gpg --verify "$sig" "$file" 2>/dev/null; then
+        log "✅ Firma GPG: VÁLIDA"
+        audit_log "VERIFICAR_FIRMA" "Firma válida para $file"
+        return 0
+    else
+        warn "❌ Firma GPG: INVÁLIDA o no confiable"
+        audit_log "VERIFICAR_FIRMA" "Firma inválida para $file"
+        return 1
+    fi
+}
+
+# ──────────────────────────────────────────────
+# CIFRADO AES-256
+# ──────────────────────────────────────────────
+cmd_cifrar() {
+    local src="$1"
+    [ -f "$src" ] || error "Archivo no encontrado: $src"
+
+    echo "=============================================="
+    echo "  CIFRADO DE EVIDENCIA — AES-256"
+    echo "=============================================="
+
+    log "Cifrando $src con AES-256-CBC..."
+    openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 \
+        -in "$src" -out "${src}.enc" || error "Error al cifrar"
+
+    if [ "${HASH_PARALELO:-no}" = "si" ]; then
+        sha256sum "${src}.enc" > "${src}.enc.sha256" & pid1=$!
+        md5sum "${src}.enc" > "${src}.enc.md5" & pid2=$!
+        wait $pid1; wait $pid2
+        cat "${src}.enc.sha256"
+        cat "${src}.enc.md5"
+    else
+        sha256sum "${src}.enc" | tee "${src}.enc.sha256"
+        md5sum "${src}.enc" | tee "${src}.enc.md5"
+    fi
+    log "Cifrado: ${src}.enc"
+    audit_log "CIFRAR" "Cifrado AES-256: $src → ${src}.enc"
+
+    # Firmar el cifrado si hay GPG
+    gpg_sign_file "${src}.enc" || true
+}
+
+cmd_descifrar() {
+    local src="$1"
+    [ -f "$src" ] || error "Archivo no encontrado: $src"
+    local out="${src%.enc}"
+
+    echo "=============================================="
+    echo "  DESCIFRADO DE EVIDENCIA"
+    echo "=============================================="
+
+    log "Descifrando $src..."
+    openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 \
+        -in "$src" -out "$out" || error "Error al descifrar"
+    log "Descifrado: $out"
+    audit_log "DESCIFRAR" "Descifrado: $src → $out"
+}
+
+# ──────────────────────────────────────────────
+# SELLO DE TIEMPO RFC 3161
+# ──────────────────────────────────────────────
+cmd_timestamp() {
+    local file="$1"
+    local tsa_url="${2:-$PERITO_TSA_URL}"
+    [ -f "$file" ] || error "Archivo no encontrado: $file"
+
+    local hash_file="${file}.sha256"
+    [ -f "$hash_file" ] || { log "Generando SHA256..."; sha256sum "$file" | cut -d' ' -f1 > "$hash_file"; }
+
+    echo "=============================================="
+    echo "  SELLO DE TIEMPO — RFC 3161"
+    echo "=============================================="
+
+    local tsq="${file}.tsq"
+    local tsr="${file}.tsr"
+
+    log "Generando consulta de timestamp..."
+    openssl ts -query -data "$hash_file" -cert -out "$tsq" 2>/dev/null || \
+        { warn "Error al generar consulta TSA"; return 1; }
+
+    if [ -n "$tsa_url" ] && [ "$tsa_url" != "none" ]; then
+        log "Enviando a TSA: $tsa_url"
+        curl -s -H "Content-Type: application/timestamp-query" \
+            --data-binary "@$tsq" -o "$tsr" "$tsa_url" 2>/dev/null || \
+            { warn "Error al contactar TSA. Puede hacerlo manualmente."; return 1; }
+
+        log "Verificando sello de tiempo..."
+        openssl ts -reply -in "$tsr" -text 2>/dev/null | head -20 || true
+        log "Sello guardado: $tsr"
+        audit_log "TIMESTAMP" "Sello RFC 3161 para $file via $tsa_url"
+    else
+        log "TSQ generado: $tsq"
+        log "Envíe a una TSA: curl -s -H 'Content-Type: application/timestamp-query' --data-binary @$tsq -o $tsr <TSA_URL>"
+    fi
+}
+
+# ──────────────────────────────────────────────
+# MANIFIESTO DE EVIDENCIA
+# ──────────────────────────────────────────────
+cmd_manifest() {
+    local file="$1"
+    [ -f "$file" ] || error "Archivo no encontrado: $file"
+
+    local sha256 md5 size fmt
+    sha256=$(cut -d' ' -f1 < "${file}.sha256" 2>/dev/null || sha256sum "$file" | cut -d' ' -f1)
+    md5=$(cut -d' ' -f1 < "${file}.md5" 2>/dev/null || md5sum "$file" | cut -d' ' -f1)
+    size=$(stat -c%s "$file")
+    fmt=$(detect_format "$file")
+    local cname
+    cname=$(detect_case_name "$file")
+
+    local manifest="${file}.manifest"
+    cat > "$manifest" << EOF
+{
+  "formato": "mforense-manifest",
+  "version": "1.0",
+  "herramienta": "mforense v${VERSION}",
+  "protocolo": "${PROTOCOL}",
+  "evidencia": {
+    "archivo": "$(basename "$file")",
+    "tamano_bytes": $size,
+    "sha256": "$sha256",
+    "md5": "$md5",
+    "formato": "$fmt"
+  },
+  "perito": {
+    "nombre": "${PERITO_NOMBRE}",
+    "cedula": "${PERITO_CEDULA}"
+  },
+  "caso": "${cname}",
+  "procesamiento": [
+    {"accion": "manifest", "fecha": "$(date -Iseconds)", "operador": "$USER"}
+  ],
+  "cadena_custodia": []
+}
+EOF
+    log "Manifiesto: $manifest"
+    gpg_sign_file "$manifest" || true
+    audit_log "MANIFEST" "Manifiesto generado para $file"
+}
+
+# ──────────────────────────────────────────────
+# CONTEXTO — DETECCIÓN DE EVIDENCIA
+# ──────────────────────────────────────────────
+detect_evidence() {
+    local -a files=()
+    for p in $EVIDENCE_PATTERNS; do
+        while IFS= read -r -d '' f; do
+            [ -n "$f" ] && files+=("$f")
+        done < <(find "$PWD" -maxdepth 1 -name "$p" -type f -print0 2>/dev/null)
+    done
+    [ ${#files[@]} -gt 0 ] && printf '%s\n' "${files[@]}"
+}
+
+ensure_working_copy() {
+    local original="$1"
+    local evidencia_dir="${EVIDENCE_DIR}/evidencia"
+    local orig_base=$(basename "$original")
+    local stem="${orig_base%.*}"
+    local working_copy="${evidencia_dir}/${stem}_TRABAJO.raw"
+
+    [ -f "$original" ] || error "Archivo no encontrado: $original"
+
+    # Sin directorio evidencia/ → trabajar sobre el original con advertencia
+    if [ ! -d "$evidencia_dir" ]; then
+        warn "No existe directorio evidencia/. Trabajando sobre el ORIGINAL."
+        warn "Para cumplir ISO 27037, cree un caso: mforense init <caso>"
+        echo "$original"
+        return
+    fi
+
+    # Verificar si ya existe una copia de trabajo válida
+    if [ -f "$working_copy" ] && [ -f "${original}.sha256" ]; then
+        local orig_hash=$(cut -d' ' -f1 < "${original}.sha256")
+        local copy_hash=$(sha256sum "$working_copy" | cut -d' ' -f1)
+        if [ "$orig_hash" = "$copy_hash" ]; then
+            log "Copia de trabajo: OK (SHA256: $orig_hash)" >&2
+            echo "$working_copy"
+            return
+        else
+            warn "Copia de trabajo corrupta. Re-creando..."
+            rm -f "$working_copy"
+        fi
+    fi
+
+    # Crear copia bit a bit
+    echo "" >&2
+    echo "=== PRESERVACIÓN — COPIA BIT A BIT ===" >&2
+    echo "  ISO 27037 / NIST SP 800-86" >&2
+    echo "  Original:  $original" >&2
+    echo "  Copia:     $working_copy" >&2
+    echo "" >&2
+
+    if command -v dcfldd &>/dev/null; then
+        dcfldd if="$original" of="$working_copy" bs=4k status=on >&2
+    else
+        dd if="$original" of="$working_copy" bs=4k status=progress >&2
+    fi
+
+    # Verificar contra hash del original
+    if [ -f "${original}.sha256" ]; then
+        local check=$(sha256sum "$working_copy" | cut -d' ' -f1)
+        local expected=$(cut -d' ' -f1 < "${original}.sha256")
+        if [ "$check" = "$expected" ]; then
+            log "✅ Integridad: La copia BIT A BIT coincide con el original" >&2
+        else
+            error "❌ LA COPIA NO COINCIDE — hash $check, esperado $expected"
+        fi
+    else
+        sha256sum "$working_copy" | tee "${working_copy}.sha256" >&2
+        warn "No hay hash del original. Verifique manualmente."
+    fi
+
+    echo "$working_copy"
+}
+
+detect_format() {
+    [ -f "$1" ] || { echo "desconocido"; return; }
+    local magic
+    magic=$(xxd -l 4 -p "$1" 2>/dev/null || od -A n -t x1 -N 4 "$1" | tr -d ' \n')
+    case "$magic" in
+        734c6d31|734c6d32|734c6d33) echo "lime/avml" ;;
+        53616c74*)                   echo "aes-256-cbc" ;;
+        00000000|ffffffff)           echo "raw (zero-filled)" ;;
+        *) echo "raw" ;;
+    esac
+}
+
+detect_case_name() {
+    local file="$1" base
+    base=$(basename "$file")
+    base="${base%%_*}"
+    base="${base%%.*}"
+    echo "$base"
+}
+
+resolve_evidence() {
+    if [ $# -gt 0 ] && [ -n "$1" ]; then
+        echo "$1"
+    else
+        local -a ev
+        mapfile -t ev < <(detect_evidence)
+        [ ${#ev[@]} -eq 0 ] && error "No se encontró evidencia en $PWD"
+        [ ${#ev[@]} -gt 1 ] && error "Múltiples archivos. Especifique uno."
+        echo "${ev[0]}"
+    fi
+}
+
+# ──────────────────────────────────────────────
+# COMANDOS BASE
+# ──────────────────────────────────────────────
+sysinfo() {
+    local volver
+    volver=$(vol --version 2>/dev/null || command -v vol 2>/dev/null || echo "no instalado")
+    cat << EOF
+=== SISTEMA DE PERITAJE ===
+Fecha:         $(date)
+Hostname:      $(hostname)
+Kernel:        $(uname -r)
+Distribución:  $(lsb_release -ds 2>/dev/null || grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"')
+Memoria RAM:   $(free -h | awk '/^Mem:/{print $2}')
+Volatility:    $volver
+LiME:          $( (lsmod 2>/dev/null | grep -c lime || echo 0) | grep -v '^0$' || echo "no cargado")
+AVML:          $(command -v avml || echo "no instalado")
+GPG:           $(gpg --version 2>&1 | head -1 || echo "no instalado")
+OpenSSL:       $(openssl version 2>&1 | head -1 || echo "no instalado")
+
+=== PERITO ===
+Nombre:        ${PERITO_NOMBRE}
+Cédula:        ${PERITO_CEDULA:-"(no configurada)"}
+País legal:    ${PAIS:-internacional}
+GPG Key:       ${PERITO_GPG_KEY:-"(no configurada)"}
+TSA URL:       ${PERITO_TSA_URL:-"(no configurada)"}
+Directorio:    $PWD
+EOF
+}
+
+cmd_hash() {
+    local file="$1"
+    local sha256 md5
+    sha256=$(sha256sum "$file" 2>/dev/null | cut -d' ' -f1) || sha256="(error)"
+    md5=$(md5sum "$file" 2>/dev/null | cut -d' ' -f1) || md5="(error)"
+    echo "$sha256|$md5"
+}
+
+# ──────────────────────────────────────────────
+# CADENA DE CUSTODIA — FORMATO MP
+# ──────────────────────────────────────────────
+chain_create() {
+    local dump="$1"
+    local chain_log="${dump}.chain"
+    [ -f "$chain_log" ] && return
+
+    local sha256 md5
+    if [ -f "${dump}.sha256" ]; then
+        sha256=$(cut -d' ' -f1 < "${dump}.sha256")
+        md5=$(cut -d' ' -f1 < "${dump}.md5" 2>/dev/null || echo "(pendiente)")
+    else
+        sha256=$(timeout 30 sha256sum "$dump" 2>/dev/null | cut -d' ' -f1) || sha256="(no calculado — archivo grande)"
+        md5=$(timeout 30 md5sum "$dump" 2>/dev/null | cut -d' ' -f1) || md5="(no calculado)"
+    fi
+
+    cat > "$chain_log" << CHAINEOF
+# ACTA DE CADENA DE CUSTODIA — EVIDENCIA DIGITAL
+**Formato:** Manual Único de Cadena de Custodia (MP 2017)
+**País legal:** ${PAIS:-internacional}
+**Protocolo:** ${PROTOCOL}
+
+## 1. IDENTIFICACIÓN DE LA EVIDENCIA
+
+| Campo | Valor |
+|---|---|
+| Archivo | $(basename "$dump") |
+| SHA256 | \`$sha256\` |
+| MD5 | \`$md5\` |
+| Tamaño | $(ls -lh "$dump" | awk '{print $5}') |
+| Formato | $(detect_format "$dump") |
+| Sistema origen | $(hostname) / $(uname -r) |
+| Fecha/hora adquisición | $(date -Iseconds) |
+| Herramienta | mforense v${VERSION} |
+
+## 2. COLECTOR
+
+| Campo | Valor |
+|---|---|
+| Nombre | $PERITO_NOMBRE |
+| Cédula | ${PERITO_CEDULA:-(no configurada)} |
+| Cargo | ${PERITO_TITULO:-(no configurado)} |
+| Firma digital | ${dump}.asc |
+
+## 3. TRANSPORTE
+
+| Campo | Valor |
+|---|---|
+| Medio de almacenamiento | (por especificar) |
+| Ruta origen | $(readlink -f "$dump" 2>/dev/null || echo "$dump") |
+| Ruta destino | (por especificar) |
+| Hash del recolector | (verificado en adquisición) |
+
+## 4. RECEPTOR / ANALISTA
+
+| Campo | Valor |
+|---|---|
+| Nombre | $PERITO_NOMBRE |
+| Cédula | ${PERITO_CEDULA:-(no configurada)} |
+| Firma digital | ${dump}.asc |
+| Fecha recepción | $(date -Iseconds) |
+
+## 5. TRANSFERENCIAS SUCESIVAS
+
+| # | Fecha | Entrega | Recibe | Motivo | Firma |
+|---|---|---|---|---|---|
+
+## 6. DEVOLUCIÓN O DESTRUCCIÓN
+
+| Campo | Valor |
+|---|---|
+| Fecha | (pendiente) |
+| Disposición final | (pendiente) |
+| Autorizado por | (pendiente) |
+
+---
+*Documento generado por mforense v${VERSION} — ${PERITO_NOMBRE}*
+CHAINEOF
+    echo "$chain_log"
+}
+
+chain_append_transfer() {
+    local dump="$1" nuevo_operador="$2" nota="${3:-Transferido}"
+    local chain_log="${dump}.chain"
+    [ -f "$chain_log" ] || chain_create "$dump" > /dev/null
+
+    local cs
+    if [ -f "${dump}.sha256" ]; then
+        cs=$(cut -d' ' -f1 < "${dump}.sha256")
+    else
+        cs=$(timeout 30 sha256sum "$dump" 2>/dev/null | cut -d' ' -f1) || cs="SHA256_NO_CALCULADO"
+    fi
+    local fecha=$(date -Iseconds)
+    local count=0
+    count=$(grep -c '^[|] [0-9]' "$chain_log" 2>/dev/null) || count=0
+    local num=$(( count + 1 ))
+
+    local entry="| $num | $fecha | $PERITO_NOMBRE | $nuevo_operador | $nota | SHA256: $cs |"
+    local tmpf="${chain_log}.tmp"
+    while IFS= read -r line; do
+        case "$line" in
+            "## 6."*) echo "$entry"; echo "$line" ;;
+            *) echo "$line" ;;
+        esac
+    done < "$chain_log" > "$tmpf" && mv "$tmpf" "$chain_log"
+}
+
+chain_cierre() {
+    local dump="$1" disposicion="${2:-Consumida en peritaje}" autorizado="${3:-$PERITO_NOMBRE}"
+    local chain_log="${dump}.chain"
+    [ -f "$chain_log" ] || error "No existe cadena de custodia: $chain_log"
+
+    local tmpf="${chain_log}.tmp"
+    local fecha_cierre=$(date -Iseconds)
+    while IFS= read -r line; do
+        case "$line" in
+            "| Fecha | (pendiente) |")           echo "| Fecha | $fecha_cierre |" ;;
+            "| Disposición final | (pendiente) |") echo "| Disposición final | $disposicion |" ;;
+            "| Autorizado por | (pendiente) |")    echo "| Autorizado por | $autorizado |" ;;
+            *) echo "$line" ;;
+        esac
+    done < "$chain_log" > "$tmpf" && mv "$tmpf" "$chain_log"
+    gpg_sign_file "$chain_log" || true
+    audit_log "CIERRE" "Cadena de custodia cerrada: $dump — $disposicion"
+    log "Cadena de custodia cerrada: $disposicion"
+}
+
+cmd_chain() {
+    local dump="$1"
+    [ -f "$dump" ] || error "Archivo no encontrado: $dump"
+
+    local chain_log="${dump}.chain"
+    if [ ! -f "$chain_log" ]; then
+        warn "No existe cadena de custodia. Creando con formato MP..."
+        chain_create "$dump" > /dev/null
+    fi
+
+    # Detectar formato: nuevo (Markdown) vs viejo (texto plano)
+    if grep -q '^## 1. IDENTIFICACIÓN' "$chain_log" 2>/dev/null; then
+        cat "$chain_log"
+    else
+        echo "=== CADENA DE CUSTODIA (formato anterior) ==="
+        echo "⚠ Este formato no cumple el Manual Único del MP."
+        echo "   Considere regenerar: rm ${chain_log} && mforense chain $dump"
+        echo ""
+        cat "$chain_log"
+    fi
+
+    local sig="${dump}.asc"
+    if [ -f "$sig" ]; then
+        echo ""; echo "--- Firma GPG ---"
+        gpg --verify "$sig" "$dump" 2>&1 | grep -E "Good|gpg:" | head -1 || echo "  (no verificada)"
+    fi
+}
+
+cmd_cierre() {
+    local dump="" disposicion="Consumida en peritaje" autorizado="$PERITO_NOMBRE"
+    local OPTIND=1
+    while getopts "d:a:" opt; do
+        case "$opt" in
+            d) disposicion="$OPTARG" ;;
+            a) autorizado="$OPTARG" ;;
+        esac
+    done
+    shift $((OPTIND-1))
+    dump=$(resolve_evidence "$@")
+    [ -f "$dump" ] || error "Archivo no encontrado: $dump"
+
+    echo "=============================================="
+    echo "  CIERRE DE CADENA DE CUSTODIA"
+    echo "  Evidencia: $(basename "$dump")"
+    echo "  Disposición: $disposicion"
+    echo "  Autorizado por: $autorizado"
+    echo "=============================================="
+    chain_cierre "$dump" "$disposicion" "$autorizado"
+}
+
+check_root() {
+    [ "$EUID" -eq 0 ] || error "Se requiere ejecución como root. Use: sudo mforense $*"
+}
+
+check_lime() {
+    [ -f "$LIME_MODULE" ] || error "Módulo LiME no encontrado. Instale: lime-forensics-dkms"
+}
+
+verify_integrity() {
+    local dump="$1" result=0
+    log "Verificando integridad..."
+    if [ "${HASH_PARALELO:-no}" = "si" ]; then
+        log "Calculando/verificando hashes en paralelo..."
+        if [ -f "${dump}.sha256" ] && [ -f "${dump}.md5" ]; then
+            sha256sum -c "${dump}.sha256" 2>/dev/null & pid1=$!
+            md5sum -c "${dump}.md5" 2>/dev/null & pid2=$!
+            wait $pid1; r1=$?
+            wait $pid2; r2=$?
+            if [ $r1 -eq 0 ]; then log "SHA256: OK"; else warn "SHA256: NO COINCIDE"; result=1; fi
+            if [ $r2 -eq 0 ]; then log "MD5: OK"; else warn "MD5: NO COINCIDE"; result=1; fi
+        else
+            sha256sum "$dump" > "${dump}.sha256" & pid1=$!
+            md5sum "$dump" > "${dump}.md5" & pid2=$!
+            wait $pid1; wait $pid2
+            log "Hashes calculados."
+        fi
+    else
+        if [ -f "${dump}.sha256" ]; then
+            sha256sum -c "${dump}.sha256" 2>/dev/null && log "SHA256: OK" || { warn "SHA256: NO COINCIDE"; result=1; }
+        else
+            log "SHA256: calculando..."
+            sha256sum "$dump" | tee "${dump}.sha256"
+        fi
+        if [ -f "${dump}.md5" ]; then
+            md5sum -c "${dump}.md5" 2>/dev/null && log "MD5: OK" || { warn "MD5: NO COINCIDE"; result=1; }
+        else
+            log "MD5: calculando..."
+            md5sum "$dump" | tee "${dump}.md5"
+        fi
+    fi
+    [ $result -eq 0 ] && log "Integridad: ✅ VERIFICADA" || warn "Integridad: ❌ FALLÓ"
+    audit_log "VERIFICAR" "Integridad de $dump: $([ $result -eq 0 ] && echo 'OK' || echo 'FALLÓ')"
+    return $result
+}
+
+# ──────────────────────────────────────────────
+# IMPORTAR EVIDENCIA
+# ──────────────────────────────────────────────
+cmd_import() {
+    local src="" orig_sha256="" orig_md5="" remitente="" caso=""
+    local OPTIND=1
+    while getopts "f:256:md5:r:c:" opt; do
+        case "$opt" in
+            f) src="$OPTARG" ;; 256) orig_sha256="$OPTARG" ;;
+            md5) orig_md5="$OPTARG" ;; r) remitente="$OPTARG" ;; c) caso="$OPTARG" ;;
+        esac
+    done
+    [ -z "$src" ] && error "Uso: import -f dump.raw [-256 sha] [-md5 hash] [-r remitente] [-c caso]"
+    [ -f "$src" ] || error "Archivo no encontrado: $src"
+
+    local base_name=$(basename "$src")
+    local dst="$PWD/$base_name"
+    [ "$(readlink -f "$src")" != "$(readlink -f "$dst")" ] && cp "$src" "$dst"
+
+    echo "=============================================="
+    echo "  IMPORTAR EVIDENCIA — CADENA DE CUSTODIA"
+    echo "=============================================="
+    log "Archivo: $base_name (detect_format "$dst")"
+
+    local current_sha current_md5
+    current_sha=$(sha256sum "$dst" | cut -d' ' -f1)
+    current_md5=$(md5sum "$dst" | cut -d' ' -f1)
+
+    if [ -n "$orig_sha256" ]; then
+        [ "$current_sha" = "$orig_sha256" ] && log "SHA256: ✅ COINCIDE" || warn "SHA256: ❌ NO COINCIDE"
+    fi
+    if [ -n "$orig_md5" ]; then
+        [ "$current_md5" = "$orig_md5" ] && log "MD5: ✅ COINCIDE" || warn "MD5: ❌ NO COINCIDE"
+    fi
+
+    echo "$current_sha  $base_name" > "${dst}.sha256"
+    echo "$current_md5  $base_name" > "${dst}.md5"
+
+    local chain_log=$(chain_create "$dst")
+
+    cmd_manifest "$dst"
+    gpg_sign_file "$chain_log" || true
+    audit_log "IMPORTAR" "Importado $base_name desde $remitente"
+    log "Importación completada. Use: mforense verify $base_name"
+}
+
+# ──────────────────────────────────────────────
+# VERIFICAR
+# ──────────────────────────────────────────────
+cmd_verify() {
+    local dump=$(resolve_evidence "$@")
+    echo "=============================================="
+    echo "  VERIFICACIÓN FORENSE"
+    echo "=============================================="
+    cmd_chain "$dump"
+    echo ""
+    verify_integrity "$dump"
+    echo ""
+    gpg_verify_file "$dump" || true
+    echo ""
+
+    local tsr="${dump}.tsr"
+    if [ -f "$tsr" ]; then
+        log "Sello de tiempo encontrado:"
+        openssl ts -reply -in "$tsr" -text 2>/dev/null | grep -E "Time stamp|Policy" || true
+    fi
+}
+
+# ──────────────────────────────────────────────
+# TRANSFERIR CUSTODIA
+# ──────────────────────────────────────────────
+cmd_transfer() {
+    local dump="" nuevo_operador="" nota=""
+    local OPTIND=1
+    while getopts "f:o:n:" opt; do
+        case "$opt" in
+            f) dump="$OPTARG" ;; o) nuevo_operador="$OPTARG" ;; n) nota="$OPTARG" ;;
+        esac
+    done
+    [ -z "$dump" ] && dump=$(resolve_evidence 2>/dev/null) || true
+    [ -z "$dump" ] && error "Especifique archivo: transfer -f dump.raw -o 'Nuevo Operador'"
+    [ -f "$dump" ] || error "Archivo no encontrado: $dump"
+    [ -z "$nuevo_operador" ] && error "Debe especificar: -o 'Nuevo Operador'"
+
+    local chain_log="${dump}.chain"
+    [ -f "$chain_log" ] || echo "=== REGISTRO DE CADENA DE CUSTODIA ===" > "$chain_log"
+    local cs
+    if [ -f "${dump}.sha256" ]; then
+        cs=$(cut -d' ' -f1 < "${dump}.sha256")
+    else
+        cs=$(timeout 30 sha256sum "$dump" 2>/dev/null | cut -d' ' -f1) || cs="SHA256_NO_CALCULADO"
+    fi
+
+    echo "=== TRANSFERENCIA DE CUSTODIA ==="
+    echo "Archivo:    $(basename "$dump")"
+    echo "SHA256:     $cs"
+    echo "Entrega:    $PERITO_NOMBRE → $nuevo_operador"
+    [ -n "$nota" ] && echo "Nota:       $nota"
+    echo "Fecha:      $(date -Iseconds)"
+
+    chain_append_transfer "$dump" "$nuevo_operador" "$nota"
+    gpg_sign_file "$chain_log" || true
+    audit_log "TRANSFERIR" "Custodia transferida a $nuevo_operador: $nota"
+}
+
+# ──────────────────────────────────────────────
+# STATUS — DASHBOARD
+# ──────────────────────────────────────────────
+cmd_status() {
+    local -a ev; mapfile -t ev < <(detect_evidence)
+    local -a halldirs; mapfile -t halldirs < <(find "$PWD" -maxdepth 1 -type d -name "hallazgos_*" -print0 2>/dev/null | xargs -0 -I{} basename {} | sort)
+
+    echo "=============================================="
+    echo "  mforense — DASHBOARD DEL CASO"
+    echo "  $PWD"
+    echo "=============================================="
+
+    echo ""
+    echo "--- EVIDENCIA ---"
+    if [ ${#ev[@]} -eq 0 ]; then echo "  (sin evidencia en este directorio)"
+    else for f in "${ev[@]}"; do
+            local fmt size bn origen="adquirido" firma="" estado_chain=""
+            fmt=$(detect_format "$f"); size=$(ls -lh "$f" | awk '{print $5}'); bn=$(basename "$f")
+            [ -f "${f}.chain" ] && origen="importado"
+            [ -f "${f}.asc" ] && firma="🔐 firmado"
+            if [ -f "${f}.chain" ] && grep -q '## 1. IDENTIFICACIÓN' "${f}.chain" 2>/dev/null; then
+                if grep -q 'Disposición final' "${f}.chain" 2>/dev/null && ! grep -q '(pendiente)' "${f}.chain" 2>/dev/null; then
+                    estado_chain="✅ cadena cerrada"
+                else
+                    estado_chain="📋 cadena abierta"
+                fi
+            elif [ -f "${f}.chain" ]; then
+                estado_chain="⚠ formato anterior"
+            fi
+            echo "  📄 $bn"
+            echo "     $fmt | $size | $origen $firma $estado_chain"
+            [ -f "${f}.chain" ] && grep -q '## 5. TRANSFERENCIAS' "${f}.chain" 2>/dev/null && {
+                local ultima=$(grep '^| [0-9]' "${f}.chain" | tail -1)
+                [ -n "$ultima" ] && echo "     Última transferencia: $ultima"
+            }
+        done
+    fi
+
+    echo ""; echo "--- ANÁLISIS ---"
+    [ ${#halldirs[@]} -eq 0 ] && echo "  (sin análisis previos)"
+    for d in "${halldirs[@]}"; do
+        local nf=$(find "$PWD/$d" -type f 2>/dev/null | wc -l)
+        echo "  📁 $d/ ($nf archivos)"
+    done
+
+    echo ""; echo "--- PERITO ---"
+    echo "  $PERITO_NOMBRE ${PERITO_CEDULA:+($PERITO_CEDULA)}"
+    [ -n "$PERITO_GPG_KEY" ] && echo "  GPG: $PERITO_GPG_KEY"
+
+    if [ ${#ev[@]} -gt 0 ]; then
+        echo ""; echo "--- ACCIONES ---"
+        echo "  mforense verify          # verificar integridad + firma + timestamp"
+        echo "  mforense analyze         # análisis forense"
+        echo "  mforense report          # informe pericial"
+        echo "  mforense cifrar          # cifrar evidencia"
+    fi
+    echo ""
+}
+
+# ──────────────────────────────────────────────
+# INIT
+# ──────────────────────────────────────────────
+cmd_init() {
+    local case_name="${1:-CASE-$(date +%Y%m%d)}"
+    local import_file=""; local OPTIND=1
+    while getopts "f:" opt; do case "$opt" in f) import_file="$OPTARG";; esac; done
+    case_name="${!OPTIND:-$case_name}"
+    local base="$PWD/$case_name"
+
+    [ -d "$base" ] && { log "El caso ya existe: $base"; return; }
+
+    echo "=============================================="
+    echo "  INICIAR CASO FORENSE"
+    echo "  Caso: $case_name"
+    echo "  Perito: $PERITO_NOMBRE"
+    echo "=============================================="
+    mkdir -p "$base"/{adquisicion,analisis,hallazgos,informes,evidencia}
+
+    cat > "$base/caso.json" << EOF2
+{
+  "caso": "$case_name",
+  "creado": "$(date -Iseconds)",
+  "perito": "$PERITO_NOMBRE",
+  "cedula": "$PERITO_CEDULA",
+  "pais": "${PAIS:-internacional}",
+  "protocolo": "$PROTOCOL",
+  "herramienta": "mforense v$VERSION",
+  "ley_aplicable": "$(case "${PAIS:-internacional}" in venezuela) echo 'Ley Especial contra Delitos Informáticos (Venezuela) / ISO 27037';; argentina) echo 'Ley 25.326 / Código Procesal Penal Federal / Convenio Budapest';; *) echo 'ISO 27037 / NIST SP 800-86 / RFC 3227';; esac)",
+  "evidencia": [],
+  "notas": []
+}
+EOF2
+
+    echo "  $base/"
+    echo "  ├── adquisicion/"
+    echo "  ├── evidencia/"
+    echo "  ├── analisis/"
+    echo "  ├── hallazgos/"
+    echo "  ├── informes/"
+    echo "  └── caso.json"
+
+    if [ -n "$import_file" ] && [ -f "$import_file" ]; then
+        cp "$import_file" "$base/evidencia/"
+        (cd "$base" && mforense import -f "evidencia/$(basename "$import_file")")
+    fi
+
+    audit_log "INIT" "Caso $case_name creado por $PERITO_NOMBRE"
+    log "Caso creado: cd $case_name && mforense status"
+}
+
+# ──────────────────────────────────────────────
+# FIJACIÓN DOCUMENTAL (ISO 27037)
+# ──────────────────────────────────────────────
+fijacion_documental() {
+    local outdir="${EVIDENCE_DIR}/fijacion_$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$outdir"
+    echo "=== FIJACIÓN DOCUMENTAL ==="
+    echo "  ISO 27037 — Preservación del lugar de los hechos"
+    echo "  Directorio: $outdir"
+    echo ""
+
+    log "Fijación — Procesos activos..."
+    ps aux 2>/dev/null > "$outdir/ps_aux.txt" || echo "(error al capturar procesos)"
+
+    log "Fijación — Conexiones de red..."
+    netstat -tulpn 2>/dev/null > "$outdir/netstat.txt" || ss -tulpn 2>/dev/null > "$outdir/netstat.txt" || echo "(error al capturar red)"
+
+    log "Fijación — Módulos del kernel..."
+    lsmod > "$outdir/lsmod.txt" 2>/dev/null || true
+
+    log "Fijación — Sistema de archivos..."
+    mount > "$outdir/mount.txt" 2>/dev/null || true
+    df -h > "$outdir/df.txt" 2>/dev/null || true
+
+    log "Fijación — Variables de entorno..."
+    env | sort > "$outdir/env.txt" 2>/dev/null || true
+
+    log "Fijación — Usuarios activos..."
+    who > "$outdir/who.txt" 2>/dev/null || true
+    w > "$outdir/w.txt" 2>/dev/null || true
+
+    log "Fijación — Tiempo del sistema..."
+    timedatectl > "$outdir/timedatectl.txt" 2>/dev/null || date > "$outdir/date.txt"
+
+    cat > "$outdir/README.md" << FIJEOF
+# Fijación Documental — ISO 27037
+
+**Fecha:** $(date -Iseconds)
+**Operador:** $PERITO_NOMBRE
+**Equipo:** $(hostname) / $(uname -r)
+
+## Archivos Capturados
+
+| Archivo | Contenido | Propósito (ISO 27037) |
+|---|---|---|
+| ps_aux.txt | Procesos activos | Documentar estado del sistema antes de adquirir |
+| netstat.txt | Conexiones de red | Documentar comunicaciones activas (orden de volatilidad) |
+| lsmod.txt | Módulos del kernel | Documentar posibles rootkits o modificaciones |
+| mount.txt | Sistemas de archivos montados | Documentar almacenamiento conectado |
+| df.txt | Uso de disco | Documentar capacidad y particiones |
+| env.txt | Variables de entorno | Documentar configuración del sistema |
+| who.txt / w.txt | Usuarios conectados | Documentar sesiones activas |
+| timedatectl.txt | Hora del sistema | Documentar línea de tiempo forense |
+
+*Esta fijación cumple con el paso de "Fijación" del Manual Único de Cadena de Custodia (MP 2017) y el estándar ISO 27037.*
+FIJEOF
+
+    log "Fijación completada: $outdir"
+    echo "$outdir"
+}
+
+# ──────────────────────────────────────────────
+# VERIFICAR HASH DEL RECOLECTOR
+# ──────────────────────────────────────────────
+verificar_recolector() {
+    local metodo="$1"
+    case "$metodo" in
+        avml)
+            if [ -x "$AVML_BIN" ]; then
+                local real_hash
+                real_hash=$(sha256sum "$AVML_BIN" 2>/dev/null | cut -d' ' -f1) || return
+                if [ "$real_hash" = "$AVML_SHA256" ]; then
+                    log "AVML: hash verificado ✅ ($real_hash)"
+                else
+                    warn "AVML: hash NO COINCIDE!"
+                    warn "  Esperado: $AVML_SHA256"
+                    warn "  Real:     $real_hash"
+                    warn "  El binario pudo haber sido modificado."
+                    echo ""
+                    echo -n "  ¿Continuar de todas formas? [s/N] "
+                    read -r resp
+                    [ "$resp" != "s" ] && [ "$resp" != "S" ] && error "Operación cancelada por seguridad."
+                fi
+            fi
+            ;;
+    esac
+}
+
+# ──────────────────────────────────────────────
+# FASE 1: ADQUISICIÓN
+# ──────────────────────────────────────────────
+cmd_acquire() {
+    local method="lime"
+    local case_name="$(date +%Y%m%d_%H%M%S)"
+    while [ $# -gt 0 ]; do
+        case "$1" in -m) method="$2"; shift 2;; *) case_name="$1"; shift;; esac
+    done
+
+    # Guardar original en adquisicion/ si existe (ISO 27037)
+    local adq_dir="${EVIDENCE_DIR}/adquisicion"
+    local ev_dir="${EVIDENCE_DIR}/evidencia"
+    local outfile
+    if [ -d "$adq_dir" ]; then
+        outfile="${adq_dir}/${case_name}.raw"
+    else
+        outfile="${EVIDENCE_DIR}/${case_name}.raw"
+    fi
+    check_root "acquire"
+
+    echo "=============================================="
+    echo "  FASE 1: ADQUISICIÓN DE MEMORIA VOLÁTIL"
+    echo "  Caso:    $case_name | Método: $method"
+    echo "  Perito:  $PERITO_NOMBRE"
+    echo "=============================================="
+    sysinfo
+
+    # Fijación documental pre-adquisición (ISO 27037)
+    fijacion_documental
+
+    # Verificar integridad del recolector
+    verificar_recolector "$method"
+
+    case "$method" in
+        lime)
+            check_lime
+            /sbin/insmod "$LIME_MODULE" path="$outfile" format=raw 2>/dev/null || error "Error al cargar LiME"
+            /sbin/rmmod lime 2>/dev/null || true ;;
+        avml)
+            [ -x "$AVML_BIN" ] || error "AVML no instalado"
+            $AVML_BIN "$outfile" 2>/dev/null || error "AVML falló" ;;
+        *) error "Método: lime o avml" ;;
+    esac
+
+    if [ "${HASH_PARALELO:-no}" = "si" ]; then
+        log "Calculando hashes en paralelo..."
+        sha256sum "$outfile" > "${outfile}.sha256" & pid1=$!
+        md5sum "$outfile" > "${outfile}.md5" & pid2=$!
+        wait $pid1; wait $pid2
+        cat "${outfile}.sha256"
+        cat "${outfile}.md5"
+    else
+        sha256sum "$outfile" | tee "${outfile}.sha256"
+        md5sum "$outfile" | tee "${outfile}.md5"
+    fi
+
+    local chain_log=$(chain_create "$outfile")
+
+    chown "$SUDO_USER:$(id -gn "$SUDO_USER" 2>/dev/null || echo "$SUDO_USER")" \
+        "$outfile" "${outfile}.sha256" "${outfile}.md5" "$chain_log" 2>/dev/null || true
+
+    cmd_manifest "$outfile"
+    gpg_sign_file "$chain_log" || true
+    cmd_timestamp "$outfile" || true
+    audit_log "ADQUIRIR" "Memoria adquirida: $outfile vía $method"
+
+    echo ""; log "=== CADENA DE CUSTODIA INICIAL ==="
+    cat "$chain_log"
+    echo "========================"
+
+    # Crear copia de trabajo automáticamente si existe evidencia/
+    if [ -d "$ev_dir" ] && [ -d "$adq_dir" ]; then
+        echo ""
+        log "Creando copia de trabajo para análisis..."
+        ensure_working_copy "$outfile" > /dev/null
+    fi
+}
+
+# ──────────────────────────────────────────────
+# FASE 2-4: ANÁLISIS, INVESTIGACIÓN, REPORTE
+# ──────────────────────────────────────────────
+cmd_analyze() {
+    local dump=$(resolve_evidence "$@")
+    [ -f "$dump" ] || error "Archivo no encontrado: $dump"
+    dump=$(ensure_working_copy "$dump")
+    mkdir -p "$ANALYSIS_DIR"
+    local cname=$(detect_case_name "$dump"); CASE_NAME="$cname"
+
+    echo "=== FASE 2: ANÁLISIS ==="
+    echo "Evidencia: $dump ($(ls -lh "$dump" | awk '{print $5}'))"
+    echo "Formato:   $(detect_format "$dump") | Caso: $cname"
+    cmd_chain "$dump"; verify_integrity "$dump" || true
+
+    echo ""; log "2.1 — SO...";         vol -f "$dump" banners.Banners 2>&1 | tee "$ANALYSIS_DIR/01_sistema.txt" || true
+    echo ""; log "2.2 — Procesos...";   vol -f "$dump" linux.pslist.PsList 2>&1 | tee "$ANALYSIS_DIR/02_procesos.txt" || true
+    echo ""; log "2.3 — Árbol...";      vol -f "$dump" linux.pstree.PsTree 2>&1 | tee "$ANALYSIS_DIR/03_arbol_procesos.txt" || true
+    advertencia_privacidad
+    echo ""; log "2.4 — Bash...";       vol -f "$dump" linux.bash.Bash 2>&1 | tee "$ANALYSIS_DIR/04_bash_history.txt" || true
+    echo ""; log "2.5 — Argumentos..."; vol -f "$dump" linux.psaux.PsAux 2>&1 | tee "$ANALYSIS_DIR/05_argumentos.txt" || true
+    echo ""; log "2.6 — Red...";        vol -f "$dump" linux.netstat 2>&1 | tee "$ANALYSIS_DIR/06_red.txt" || true
+    echo ""; log "2.7 — LSOF...";       vol -f "$dump" linux.lsof 2>&1 | tee "$ANALYSIS_DIR/07_archivos_abiertos.txt" || true
+    echo ""; log "2.8 — Malfind...";    vol -f "$dump" linux.malfind.Malfind 2>&1 | tee "$ANALYSIS_DIR/08_malfind.txt" || true
+    audit_log "ANALIZAR" "Análisis FASE 2 completado: $dump → $ANALYSIS_DIR"
+    log "Resultados: $ANALYSIS_DIR/"
+}
+
+cmd_investigate() {
+    local dump=$(resolve_evidence "$@")
+    [ -f "$dump" ] || error "Archivo no encontrado: $dump"
+    dump=$(ensure_working_copy "$dump")
+    mkdir -p "$ANALYSIS_DIR"
+    echo "=== FASE 3: INVESTIGACIÓN ==="
+
+    log "3.1 — Ocultos...";    vol -f "$dump" linux.psscan.PsScan 2>&1 | tee "$ANALYSIS_DIR/09_procesos_ocultos.txt" || true
+    echo ""; log "3.2 — Módulos...";  vol -f "$dump" linux.lsmod.LsMod 2>&1 | tee "$ANALYSIS_DIR/10_modulos_kernel.txt" || true
+    echo ""; log "3.3 — Maps...";     vol -f "$dump" linux.proc.Maps 2>&1 | head -100 | tee "$ANALYSIS_DIR/11_mapas_memoria.txt" || true
+    advertencia_privacidad
+    echo ""; log "3.4 — Envars...";   vol -f "$dump" linux.envvars.EnvVars 2>&1 | tee "$ANALYSIS_DIR/12_env_vars.txt" || true
+    echo ""; log "3.5 — Inyección..."; vol -f "$dump" linux.malfind.Malfind --dump 2>&1 | tee "$ANALYSIS_DIR/13_inyeccion.txt" || true
+
+    echo ""; log "3.6 — Resumen..."
+    {
+        echo "=== HALLAZGOS ==="; echo "Fecha: $(date)"; echo "Archivo: $dump"
+        echo "Procesos: $(wc -l < "$ANALYSIS_DIR/02_procesos.txt" 2>/dev/null || echo 'N/A')"
+        echo "Conexiones: $(grep -ic 'established\|listen' "$ANALYSIS_DIR/06_red.txt" 2>/dev/null || echo 0)"
+        echo "Inyecciones: $(grep -c Malfind "$ANALYSIS_DIR/13_inyeccion.txt" 2>/dev/null || echo 0)"
+        echo "Archivos tmp: $(grep -c '/tmp\|/dev/shm' "$ANALYSIS_DIR/07_archivos_abiertos.txt" 2>/dev/null || echo 0)"
+    } | tee "$ANALYSIS_DIR/17_resumen_hallazgos.txt"
+    audit_log "INVESTIGAR" "Investigación FASE 3 completada: $dump"
+    log "Hallazgos: $ANALYSIS_DIR/"
+}
+
+cmd_report() {
+    local dump=$(resolve_evidence "$@")
+    [ -f "$dump" ] || error "Archivo no encontrado: $dump"
+    dump=$(ensure_working_copy "$dump")
+    mkdir -p "$ANALYSIS_DIR"
+    local cname=$(detect_case_name "$dump"); CASE_NAME="$cname"
+    local sha256 md5
+    if [ -f "${dump}.sha256" ]; then
+        sha256=$(cut -d' ' -f1 < "${dump}.sha256")
+        md5=$(cut -d' ' -f1 < "${dump}.md5" 2>/dev/null || echo "(no calculado)")
+    else
+        local hashes=$(cmd_hash "$dump")
+        sha256=$(echo "$hashes" | cut -d'|' -f1)
+        md5=$(echo "$hashes" | cut -d'|' -f2)
+    fi
+    local report_file="$ANALYSIS_DIR/informe_pericial_${TIMESTAMP}.md"
+    local r=$report_file
+    local origen=$([ -f "${dump}.chain" ] && echo "importado" || echo "adquirido localmente")
+
+    cat > "$r" << EOF
+# INFORME PERICIAL DE MEMORIA VOLÁTIL
+
+**Perito:** $PERITO_NOMBRE ${PERITO_CEDULA:+($PERITO_CEDULA)}
+**Herramienta:** mforense v${VERSION}
+**Protocolo:** ${PROTOCOL}
+**Marco legal:** $(marco_legal_pais | head -1)
+**Fecha:** $(date)
+**Caso:** $cname
+
+---
+
+## 1. DATOS DE LA EVIDENCIA
+
+| Campo | Valor |
+|---|---|
+| Archivo | $(basename "$dump") |
+| Ruta | $(readlink -f "$dump") |
+| Tamaño | $(ls -lh "$dump" | awk '{print $5}') |
+| Formato | $(detect_format "$dump") |
+| Origen | $origen |
+| SHA256 | \`$sha256\` |
+| MD5 | \`$md5\` |
+
+## 2. METODOLOGÍA APLICADA
+
+- Adquisición/Importación conforme a ISO 27037
+- Análisis con Volatility 3 (Framework v2.28.1)
+- Cadena de custodia con hash chain y firma GPG
+- Sellos de tiempo RFC 3161
+- Verificación de integridad SHA256/MD5
+
+## 3. MARCO LEGAL
+
+**País/Protocolo:** ${PAIS:-internacional}
+
+$(marco_legal_pais)
+
+EOF
+
+    # Detección contextual según país
+    case "${PAIS:-internacional}" in
+        venezuela)
+            cat >> "$r" << VEEOF
+### Tabla de correlación LECD (Venezuela)
+
+| Hallazgo forense | Posible delito | Artículo LECD (G.O. 37.313) |
+|---|---|---|
+| Conexiones remotas no autorizadas, credenciales de acceso indebido | Acceso indebido a sistemas | Art. 6 |
+| Código inyectado (malfind), regiones RWX en procesos legítimos | Sabotaje o daño a sistemas | Art. 7 |
+| Eliminación de archivos de sistema, bash con rm -rf de logs | Daño a data | Art. 8 |
+| Conexiones a IPs externas en rangos extraños, bash con wget/curl a IPs sospechosas | Espionaje informático | Art. 14 |
+| Credenciales en texto claro en envars/bash, datos personales en memoria | Violación de privacidad de data personal | Art. 20 |
+
+**TSJ C25-49 (28/05/2025):** La evidencia digital debe cumplir Manual Único Cadena de Custodia.
+**Sala Social N°523 (2024):** Solo Experticia Informática es válida, no Inspección Judicial.
+**Ley Firmas Electrónicas Art. 4:** Este dictamen es un Mensaje de Datos con valor probatorio.
+
+VEEOF
+
+            local lecd_art6=0 lecd_art7=0 lecd_art14=0 lecd_art20=0
+            [ -f "$ANALYSIS_DIR/04_bash_history.txt" ] && grep -qiE 'wget|curl.*-s|nc |ncat |ssh .*@' "$ANALYSIS_DIR/04_bash_history.txt" 2>/dev/null && lecd_art6=1
+            [ -f "$ANALYSIS_DIR/04_bash_history.txt" ] && grep -qiE 'rm .*log|history -c' "$ANALYSIS_DIR/04_bash_history.txt" 2>/dev/null && lecd_art7=1
+            [ -f "$ANALYSIS_DIR/08_malfind.txt" ] && [ "$(wc -l < "$ANALYSIS_DIR/08_malfind.txt" 2>/dev/null)" -gt 3 ] && lecd_art7=1
+            [ -f "$ANALYSIS_DIR/06_red.txt" ] && grep -qi 'ESTABLISHED' "$ANALYSIS_DIR/06_red.txt" 2>/dev/null && lecd_art14=1
+            [ -f "$ANALYSIS_DIR/04_bash_history.txt" ] && grep -qiE 'wget|curl.*\|.*bash|chmod \+x /tmp' "$ANALYSIS_DIR/04_bash_history.txt" 2>/dev/null && lecd_art14=1
+            [ -f "$ANALYSIS_DIR/12_env_vars.txt" ] && grep -qiE 'PASSWORD|SECRET|TOKEN|API_KEY' "$ANALYSIS_DIR/12_env_vars.txt" 2>/dev/null && lecd_art20=1
+
+            echo "### Artículos aplicables al caso" >> "$r"
+            [ "$lecd_art6" -eq 1 ]  && echo "- **Art. 6** (Acceso indebido) — Conexiones o comandos de acceso remoto" >> "$r"
+            [ "$lecd_art7" -eq 1 ]  && echo "- **Art. 7** (Sabotaje) — Posible código inyectado o destrucción de logs" >> "$r"
+            [ "$lecd_art14" -eq 1 ] && echo "- **Art. 14** (Espionaje) — Conexiones activas o descargas externas" >> "$r"
+            [ "$lecd_art20" -eq 1 ] && echo "- **Art. 20** (Violación privacidad) — Credenciales en texto claro" >> "$r"
+            [ "$lecd_art6$lecd_art7$lecd_art14$lecd_art20" = "0000" ] && echo "- (Sin correlación automática. Revisar manualmente.)" >> "$r"
+            echo "" >> "$r"
+            echo "### Declaración de licitud (Art. 183 COPP)" >> "$r"
+            echo "" >> "$r"
+            echo "El Art. 183 del Código Orgánico Procesal Penal establece que toda evidencia" >> "$r"
+            echo "obtenida con violación de derechos fundamentales es nula y no puede ser" >> "$r"
+            echo "valorada. El perito declara bajo fe de perito que:" >> "$r"
+            echo "" >> "$r"
+            echo "- La evidencia fue adquirida mediante herramientas forenses estándar" >> "$r"
+            echo "  (AVML v0.18.0 / LiME) sin modificar el sistema original." >> "$r"
+            echo "- No se ejecutaron comandos en el sistema bajo investigación que" >> "$r"
+            echo "  alteraran el estado de la memoria volátil." >> "$r"
+            echo "- La adquisición se realizó cumpliendo el orden de volatilidad" >> "$r"
+            echo "  (RFC 3227) y los protocolos de preservación (ISO 27037)." >> "$r"
+            echo "- La cadena de custodia ha sido documentada y firmada digitalmente." >> "$r"
+            echo "- Este dictamen es una Experticia Informática (no una Inspección" >> "$r"
+            echo "  Judicial), conforme a TSJ Sala Social N°523 (2024)." >> "$r"
+            echo "" >> "$r"
+            echo "*El perito se acoge a las sanciones previstas en el Art. 257 COPP*" >> "$r"
+            echo "*por falso testimonio o dictamen falso.*" >> "$r"
+            ;;
+        *)
+            echo "### Hallazgos vs estándares" >> "$r"
+            echo "- Los hallazgos deben evaluarse contra la política de seguridad del sistema." >> "$r"
+            echo "- ISO 27037: preservación e integridad de la evidencia verificada." >> "$r"
+            echo "- RFC 3227: orden de volatilidad respetado (RAM capturada antes de disco)." >> "$r"
+            echo "" >> "$r"
+            echo "### Declaración de licitud" >> "$r"
+            echo "" >> "$r"
+            echo "El perito declara que la evidencia fue adquirida y analizada conforme" >> "$r"
+            echo "a los estándares internacionales aplicables (ISO 27037, NIST SP 800-86," >> "$r"
+            echo "RFC 3227), sin alterar el estado original del sistema ni la integridad" >> "$r"
+            echo "de la evidencia. La cadena de custodia ha sido documentada y verificada." >> "$r"
+            ;;
+    esac
+    echo -e "\n---\n" >> "$r"
+
+    echo "## 4. RESULTADOS DEL ANÁLISIS" >> "$r"
+
+    for section in sistema procesos arbol bash red; do
+        local num; case $section in sistema) num=01;; procesos) num=02;; arbol) num=03;; bash) num=04;; red) num=06;; esac
+        local sf="$ANALYSIS_DIR/${num}_${section}.txt"
+        [ -f "$sf" ] && { echo "### ${section}" >> "$r"; echo '```' >> "$r"; cat "$sf" >> "$r"; echo '```' >> "$r"; }
+    done
+
+    echo -e "\n## 5. HALLAZGOS\n" >> "$r"
+    for f in "$ANALYSIS_DIR"/*.txt; do
+        local bn=$(basename "$f")
+        case "$bn" in 09_*|10_*|13_*|17_*) echo "### $bn" >> "$r"; echo '```' >> "$r"; cat "$f" >> "$r"; echo '```' >> "$r";; esac
+    done 2>/dev/null || true
+
+    echo -e "\n## 6. CADENA DE CUSTODIA\n" >> "$r"
+    [ -f "${dump}.chain" ] && { echo '```' >> "$r"; cat "${dump}.chain" >> "$r"; echo '```' >> "$r"; }
+    [ -f "${dump}.asc" ] && echo "\n**Firma GPG:** ${dump}.asc" >> "$r"
+    [ -f "${dump}.tsr" ] && echo "**Sello de tiempo RFC 3161:** ${dump}.tsr" >> "$r"
+
+    echo -e "\n## 7. CONCLUSIONES\n" >> "$r"
+    echo "*(Complete aquí las conclusiones del peritaje)*" >> "$r"
+    echo -e "\n---\n*Informe generado por mforense v${VERSION} — $PERITO_NOMBRE*" >> "$r"
+
+    gpg_sign_file "$report_file" || true
+    audit_log "INFORME" "Informe pericial: $report_file"
+    log "Informe: $report_file"
+}
+
+# ──────────────────────────────────────────────
+# CONVERTIR
+# ──────────────────────────────────────────────
+cmd_convert() {
+    local src="$1"
+    [ -f "$src" ] || error "Archivo no encontrado: $src"
+    local out="${src%.*}_convertido.raw"
+    local fmt=$(detect_format "$src")
+    log "Formato: $fmt"
+    case "$fmt" in
+        lime/avml)
+            if command -v avml-convert &>/dev/null; then
+                avml-convert -i "$src" -o "$out" 2>/dev/null || error "Error"
+            else
+                dd if="$src" of="$out" bs=4096 skip=1 status=progress 2>/dev/null
+            fi ;;
+        *) cp "$src" "$out" ;;
+    esac
+    if [ "${HASH_PARALELO:-no}" = "si" ]; then
+        sha256sum "$out" > "${out}.sha256" & pid1=$!
+        md5sum "$out" > "${out}.md5" & pid2=$!
+        wait $pid1; wait $pid2
+        cat "${out}.sha256"
+        cat "${out}.md5"
+    else
+        sha256sum "$out" | tee "${out}.sha256"
+        md5sum "$out" | tee "${out}.md5"
+    fi
+    audit_log "CONVERTIR" "Convertido $src → $out"
+}
+
+# ──────────────────────────────────────────────
+# INSTALAR
+# ──────────────────────────────────────────────
+cmd_install() {
+    [ "$EUID" -eq 0 ] || error "Ejecutar como root: sudo mforense install"
+    echo "=============================================="
+    echo "  Instalación mforense v${VERSION}"
+    echo "=============================================="
+    apt update -qq; apt install -yq lime-forensics-dkms xxd curl dcfldd foremost python3 python3-pip build-essential psmisc file binutils sleuthkit guymager
+    pip3 install --break-system-packages -q volatility3 2>/dev/null || pip3 install -q volatility3
+    curl -sL -o /usr/local/bin/avml https://github.com/microsoft/avml/releases/download/v0.18.0/avml && chmod +x /usr/local/bin/avml && chown root:root /usr/local/bin/avml
+    dkms autoinstall 2>/dev/null || true
+    echo "  Instalado. Configure: mforense config"
+}
+
+# ──────────────────────────────────────────────
+# CONFIG
+# ──────────────────────────────────────────────
+cmd_config() {
+    init_config
+    echo ""
+    echo "Para editar:  nano $CONFIG_FILE"
+    echo "Para firmar:  gpg --detach-sign --armor $CONFIG_FILE"
+    echo ""
+    echo "Luego genere una clave GPG para firmar evidencia:"
+    echo "  gpg --full-generate-key"
+    echo "  gpg --list-secret-keys --keyid-format LONG"
+    echo "  → Copiar el ID de la clave en PERITO_GPG_KEY del archivo config"
+}
+
+# ──────────────────────────────────────────────
+# DOC
+# ──────────────────────────────────────────────
+cmd_doc() {
+    local docfile="$(dirname "$0")/MANUAL_DEL_SISTEMA.md"
+    local readme="$(dirname "$0")/README.md"
+    local roadmap="$(dirname "$0")/ROADMAP_PROFESIONAL.md"
+    for f in "$docfile" "$readme" "$roadmap"; do
+        [ -f "$f" ] && { command -v less &>/dev/null && less "$f" || cat "$f"; return; }
+    done
+    echo "mforense v${VERSION} — Framework Forense Profesional"
+    echo ""
+    echo "  COMANDOS PROFESIONALES NUEVOS:"
+    echo "  config          Configurar datos del perito"
+    echo "  cifrar <arch>   Cifrar evidencia con AES-256"
+    echo "  descifrar <arc> Descifrar evidencia"
+    echo "  firmar <arch>   Firmar archivo con GPG"
+    echo "  timestamp <arc> Sello de tiempo RFC 3161"
+    echo "  manifest <arch> Generar manifiesto JSON"
+    echo "  audit           Ver log forense de acciones"
+    echo ""
+    echo "  COMANDOS FORENSES:"
+    echo "  init, status, acquire, import, verify, transfer"
+    echo "  analyze, investigate, report, cierre, chain, convert"
+}
+
+# ──────────────────────────────────────────────
+# MAIN
+# ──────────────────────────────────────────────
+usage() {
+    cat << EOF
+mforense v${VERSION} — Framework Forense Profesional
+Protocolo: ${PROTOCOL} | $(legal_label)
+
+PROFESIONALES:
+  config          Configurar datos del perito (GPG, cédula, tribunal)
+  cifrar <arch>   Cifrar evidencia con AES-256-CBC
+  descifrar <arc> Descifrar evidencia
+  firmar <arch>   Firmar cadena de custodia con GPG
+  timestamp <arc> Sello de tiempo RFC 3161
+  manifest <arch> Generar manifiesto de evidencia
+  audit           Ver log forense (hash chain)
+
+FORENSES:
+  init <caso>     Iniciar caso forense
+  status          Dashboard del caso
+  acquire         Adquirir memoria RAM (FASE 1)
+  import -f <arc> Importar evidencia con cadena de custodia
+  verify          Verificar integridad + firma + timestamp
+  transfer -f -o  Transferir custodia
+  analyze         Analizar con Volatility (FASE 2)
+  investigate     Investigar hallazgos (FASE 3)
+  report          Informe pericial (FASE 4)
+  cierre [-d] [-a] Cerrar cadena de custodia (disposición final)
+  chain           Cadena de custodia
+  convert         Convertir formato de dump
+  install         Instalar dependencias
+  doc             Documentación
+
+FLUJO PROFESIONAL:
+  mforense config                          # 1 vez: datos del perito + GPG
+  mforense init CASO-001 -f dump.raw      # crear caso con evidencia
+  cd CASO-001 && mforense status
+  mforense verify                          # verificar + firma + timestamp
+  mforense analyze                         # análisis forense
+  mforense report                          # informe pericial firmado
+  mforense cierre                          # cerrar cadena de custodia
+EOF
+    exit 0
+}
+
+# Cargar configuración al inicio
+load_config
+
+[ $# -eq 0 ] && usage
+
+case "$1" in
+    # Profesionales
+    config)     cmd_config;;
+    cifrar)     shift; [ $# -eq 0 ] && error "Archivo?"; cmd_cifrar "$1";;
+    descifrar)  shift; [ $# -eq 0 ] && error "Archivo?"; cmd_descifrar "$1";;
+    firmar)     shift; [ $# -eq 0 ] && error "Archivo?"; gpg_sign_file "$1";;
+    timestamp)  shift; [ $# -eq 0 ] && error "Archivo?"; cmd_timestamp "$1";;
+    manifest)   shift; ev=$(resolve_evidence "$@"); [ -n "$ev" ] && cmd_manifest "$ev";;
+    audit)      [ -f "$AUDIT_LOG" ] && command -v less &>/dev/null && less "$AUDIT_LOG" || cat "$AUDIT_LOG" || echo "(sin log forense en este directorio)";;
+    # Forenses
+    init)       shift; cmd_init "$@";;
+    status)     cmd_status;;
+    acquire)    shift; cmd_acquire "$@";;
+    import)     shift; cmd_import "$@";;
+    verify)     shift; cmd_verify "$@";;
+    transfer)   shift; cmd_transfer "$@";;
+    analyze)    shift; cmd_analyze "$@";;
+    investigate) shift; cmd_investigate "$@";;
+    report)     shift; cmd_report "$@";;
+    cierre)     shift; cmd_cierre "$@";;
+    chain)      shift; ev=$(resolve_evidence "$@"); [ -n "$ev" ] && cmd_chain "$ev";;
+    convert)    shift; [ $# -eq 0 ] && error "Archivo?"; cmd_convert "$1";;
+    install)    cmd_install;;
+    doc)        cmd_doc;;
+    info)       sysinfo;;
+    --help|-h|help) usage;;
+    *)          error "Desconocido: $1. Use --help";;
+esac

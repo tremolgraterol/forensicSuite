@@ -1,0 +1,46 @@
+# Entornos virtuales
+.venv/
+venv/
+env/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Build / distribucion
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# PyInstaller
+*.spec.bak
+*.manifest
+
+# ISO Live (muy grande; no subir a git)
+*.iso
+
+# Dumps de memoria
+*.raw
+*.mem
+*.dmp
+*.vmem
+
+# Evidencias y archivos temporales
+evidencia/
+temp/
+tmp/
+*.log
+
+# IDEs
+.vscode/
+.idea/
+.obsidian/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db

@@ -1,0 +1,24 @@
+[Unit]
+Description=ForensicSuite - Daemon de Bloqueo Forense
+Documentation=man:hdparm(8),man:blockdev(8)
+After=systemd-udev-settle.service
+Before=udisks2.service
+Requires=systemd-udev-settle.service
+
+[Service]
+Type=simple
+ExecStartPre=/usr/bin/sync
+ExecStart=/usr/bin/python3 /home/tremolgraterol/Documentos/EST_AN_FORENCE/forensic_suite/forensic_suite/daemon/forensic_blockerd.py --daemon
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Seguridad
+ProtectSystem=strict
+ReadWritePaths=/var/log/forensic_suite /etc/forensic_suite
+NoNewPrivileges=no
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_SYS_RAWIO
+
+[Install]
+WantedBy=multi-user.target
