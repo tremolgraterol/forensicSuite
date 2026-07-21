@@ -90,7 +90,7 @@ jobs:
             forensic_suite.exe memoria --analizar --dump memoria.raw -p windows.pslist
             ```
 
-            Instrucciones completas en [docs/INSTALACION_WINDOWS.md](docs/INSTALACION_WINDOWS.md).
+            Instrucciones completas en [`docs/INSTALACION_WINDOWS.md`](docs/INSTALACION_WINDOWS.md).
           files: |
             dist/forensic_suite.exe
             forensic_suite_windows.zip

@@ -3,6 +3,17 @@ Author: Alexander Graterol
 
 Framework de Analisis Forense Digital con cadena de custodia MP 2017 y auditoría firmada.
 
+![Build Windows](https://github.com/tremolgraterol/forensicSuite/actions/workflows/build-windows.yml/badge.svg)
+
+## Descargas
+
+| Plataforma | Release | Asset principal |
+|------------|---------|-----------------|
+| Linux / Live USB | [v2.0.0-linux-live](https://github.com/tremolgraterol/forensicSuite/releases/tag/v2.0.0-linux-live) | `forensic-suite-live.iso` |
+| Windows | [v2.0.0-windows](https://github.com/tremolgraterol/forensicSuite/releases/tag/v2.0.0-windows) | `forensic_suite.exe` |
+
+Todas las releases incluyen hashes SHA-256 para verificar integridad.
+
 ## Instalacion
 
 ```bash

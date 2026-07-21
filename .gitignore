@@ -44,3 +44,32 @@ tmp/
 # Sistema operativo
 .DS_Store
 Thumbs.db
+
+# Credenciales y secretos
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+credentials/
+
+# Tokens y claves de API
+*.token
+*token*.txt
+
+# Archivos de cache de herramientas
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Hash de evidencia (generados localmente)
+*.hash
+*.sha256
+*.sha512
+*.md5
+
+# Reportes generados
+reportes/
+informes/
