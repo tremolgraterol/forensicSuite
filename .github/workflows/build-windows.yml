@@ -43,20 +43,20 @@ jobs:
 
       - name: Verify build output
         run: |
-          if (-not (Test-Path dist/forensic_suite/forensic_suite.exe)) {
+          if (-not (Test-Path dist/forensic_suite.exe)) {
             throw "forensic_suite.exe not found"
           }
-          Get-ChildItem dist/forensic_suite
+          Get-ChildItem dist/*.exe
 
       - name: Create ZIP archive
         run: |
           $tag = "${{ github.event.inputs.tag || github.ref_name }}"
-          Compress-Archive -Path dist/forensic_suite/* -DestinationPath "forensic_suite_windows.zip" -Force
+          Compress-Archive -Path dist/forensic_suite.exe -DestinationPath "forensic_suite_windows.zip" -Force
           Get-Item forensic_suite_windows.zip
 
       - name: Generate SHA-256 checksums
         run: |
-          Get-FileHash dist/forensic_suite/forensic_suite.exe -Algorithm SHA256 | Select-Object Hash > forensic_suite.exe.sha256
+          Get-FileHash dist/forensic_suite.exe -Algorithm SHA256 | Select-Object Hash > forensic_suite.exe.sha256
           Get-FileHash forensic_suite_windows.zip -Algorithm SHA256 | Select-Object Hash >> forensic_suite.exe.sha256
           Get-Content forensic_suite.exe.sha256
 
@@ -65,7 +65,7 @@ jobs:
         with:
           name: forensic_suite_windows
           path: |
-            dist/forensic_suite/forensic_suite.exe
+            dist/forensic_suite.exe
             forensic_suite_windows.zip
             forensic_suite.exe.sha256
 
@@ -92,7 +92,7 @@ jobs:
 
             Instrucciones completas en [docs/INSTALACION_WINDOWS.md](docs/INSTALACION_WINDOWS.md).
           files: |
-            dist/forensic_suite/forensic_suite.exe
+            dist/forensic_suite.exe
             forensic_suite_windows.zip
             forensic_suite.exe.sha256
           fail_on_unmatched_files: true
