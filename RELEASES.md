@@ -1,26 +1,31 @@
 # ForensicSuite - Notas de Lanzamiento
 
 **Version:** 2.0.0  
-**Fecha:** 21 de julio de 2026  
-**Plataformas soportadas:** Linux (Live USB) y Windows 10/11
+**Fecha:** 21 de julio de 2026
+
+ForensicSuite se publica en **dos releases separadas** segun plataforma:
+
+- **Linux / Live USB:** para adquisicion y analisis forense completo.
+- **Windows:** para analisis de evidencias y memoria con Volatility3 en entornos Windows.
 
 ---
 
-## Descargas disponibles
+## Release Linux / Live USB
 
-| Asset | Descripcion | Plataforma |
-|---|---|---|
-| `Source code (zip/tar.gz)` | Codigo fuente completo con documentacion | Linux / Windows |
-| `forensic-suite-live.iso` | Imagen ISO Live USB con Debian 13 (trixie) + herramientas forenses | Linux Live |
-| `forensic_suite_windows.zip` (opcional) | Ejecutable portable `.exe` generado con PyInstaller | Windows 10/11 |
+**Tag recomendado:** `v2.0.0-linux-live`  
+**Nombre:** `ForensicSuite 2.0.0 — Linux Live USB`
+
+### Descargas
+
+| Asset | Descripcion |
+|---|---|
+| `forensic-suite-live.iso` | Imagen ISO Live USB con Debian 13 (trixie) + herramientas forenses |
+| `forensic-suite-live.iso.sha256` | Hash SHA-256 de la ISO |
+| `Source code (zip/tar.gz)` | Codigo fuente completo |
 
 > **Nota:** La ISO pesa aproximadamente 1,3 GB. Descargala una sola vez y verifica su hash SHA-256.
 
----
-
-## Inicio rapido
-
-### Opcion 1: USB/ISO Live forense (recomendado para adquisicion forense)
+### Inicio rapido
 
 1. Descarga `forensic-suite-live.iso`.
 2. Graba la ISO en un USB de al menos 4 GB.
@@ -29,38 +34,7 @@
 
 **Instrucciones completas:** [`docs/CREAR_USB_LIVE.md`](docs/CREAR_USB_LIVE.md)
 
-### Opcion 2: Windows
-
-1. Descarga el ejecutable `forensic_suite.exe` o el codigo fuente.
-2. Si usas el codigo fuente, instala Python 3.9+ y las dependencias:
-   ```powershell
-   pip install -e ".[full]"
-   pip install volatility3
-   ```
-3. Ejecuta:
-   ```powershell
-   forensic_suite.exe --help
-   # o desde codigo fuente
-   python -m forensic_suite_windows.win_main --help
-   ```
-
-**Instrucciones completas:** [`docs/INSTALACION_WINDOWS.md`](docs/INSTALACION_WINDOWS.md)
-
----
-
-## Verificacion de integridad
-
-Todos los assets publicados incluyen hashes SHA-256. Verifica con:
-
-```bash
-sha256sum forensic-suite-live.iso
-```
-
-Compara el resultado con el hash publicado en el release.
-
----
-
-## Contenido de la ISO Live
+### Contenido de la ISO Live
 
 - Debian 13 (trixie) amd64
 - ForensicSuite instalado en `/opt/forensic_suite`
@@ -70,12 +44,52 @@ Compara el resultado con el hash publicado en el release.
 
 ---
 
-## Version Windows
+## Release Windows
+
+**Tag recomendado:** `v2.0.0-windows`  
+**Nombre:** `ForensicSuite 2.0.0 — Windows`
+
+### Descargas
+
+| Asset | Descripcion |
+|---|---|
+| `forensic_suite.exe` | Ejecutable portable generado con PyInstaller |
+| `forensic_suite_windows.zip` | Ejecutable + dependencias empaquetadas |
+| `forensic_suite.exe.sha256` | Hash SHA-256 del ejecutable |
+| `Source code (zip/tar.gz)` | Codigo fuente completo |
+
+### Inicio rapido
+
+1. Descarga `forensic_suite.exe`.
+2. Ejecuta desde CMD o PowerShell:
+   ```powershell
+   forensic_suite.exe --help
+   forensic_suite.exe hash evidencia.raw
+   forensic_suite.exe memoria --analizar --dump memoria.raw -p windows.pslist
+   ```
+
+**Instrucciones completas:** [`docs/INSTALACION_WINDOWS.md`](docs/INSTALACION_WINDOWS.md)
+
+### Caracteristicas de la version Windows
 
 - Punto de entrada separado: `forensic_suite_windows/win_main.py`
 - Capa de abstraccion Windows: `forensic_suite_windows/core/plataforma.py`
 - Funciones disponibles: hash, manifest, acta, firma GPG, timestamp, carve, analyze, memoria --analizar (Volatility3), interact, listar discos, proteccion USB global.
 - Limitaciones: bloqueo real por dispositivo y daemon no son equivalentes a Linux; adquisicion RAM requiere WinPmem/DumpIt.
+
+---
+
+## Verificacion de integridad
+
+Cada release incluye archivos `.sha256`. Verifica con:
+
+```bash
+# Linux / macOS
+sha256sum -c forensic-suite-live.iso.sha256
+
+# Windows (PowerShell)
+Get-FileHash forensic_suite.exe -Algorithm SHA256 | Select-Object Hash
+```
 
 ---
 
