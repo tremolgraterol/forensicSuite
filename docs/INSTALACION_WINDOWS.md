@@ -55,9 +55,12 @@ Asi se mantiene cada version totalmente independiente; el codigo Linux no depend
 
 ## Metodo 1: Ejecutar desde codigo fuente
 
+Este es el metodo recomendado para validar ForensicSuite antes de generar o distribuir el ejecutable.
+
 ```powershell
-# 1. Descargar o clonar el proyecto
-cd C:\Users\TuUsuario\Documentos\forensic_suite
+# 1. Clonar el proyecto y entrar en su directorio
+git clone https://github.com/tremolgraterol/forensicSuite.git
+cd forensicSuite
 
 # 2. Crear virtualenv
 python -m venv .venv
@@ -65,10 +68,14 @@ python -m venv .venv
 
 # 3. Instalar dependencias
 pip install -e ".[full]"
-pip install volatility3
+pip install volatility3 pefile
 
-# 4. Ejecutar
+# 4. Ejecutar el CLI exclusivo de Windows
 python -m forensic_suite_windows.win_main --help
+
+# 5. Prueba basica de hash
+"prueba ForensicSuite" | Set-Content .\prueba.txt
+python -m forensic_suite_windows.win_main hash .\prueba.txt
 ```
 
 ---
@@ -90,6 +97,31 @@ Para generar un solo archivo `.exe`:
 ```powershell
 .\tools\build-windows.ps1 -OneFile
 ```
+
+## Pruebas locales y alertas de Microsoft Defender
+
+Los ejecutables nuevos creados con PyInstaller y sin firma Authenticode pueden ser bloqueados por Microsoft Defender o Smart App Control con detecciones genericas, por ejemplo `Trojan:Win32/Sabsik.TE.A!ml`. Una deteccion heuristica no confirma por si sola que el proyecto tenga malware, pero el archivo debe verificarse antes de ejecutarse.
+
+1. Prueba primero el codigo fuente con el **Metodo 1**.
+2. Genera el ejecutable dentro de una VM Windows o equipo de laboratorio.
+3. Calcula y conserva el hash del artefacto generado:
+
+   ```powershell
+   Get-FileHash .\dist\windows\forensic_suite\forensic_suite.exe -Algorithm SHA256
+   ```
+
+4. Ejecuta las pruebas funcionales desde el codigo fuente y, si Defender permite el binario, desde el ejecutable:
+
+   ```powershell
+   python -m unittest tests.test_suite
+   python -m forensic_suite_windows.win_main --help
+   python -m forensic_suite_windows.win_main memoria --verificar-entorno
+   ```
+
+5. No desactives Microsoft Defender ni Smart App Control en un equipo de produccion para ignorar una alerta.
+6. Antes de distribuir el `.exe` a terceros, firmalo con un certificado Code Signing y publica su hash SHA-256 en el release.
+
+La ejecucion desde codigo fuente permite validar la aplicacion aunque un `.exe` descargado sin firma sea bloqueado. La distribucion publica de binarios sin firma no se recomienda.
 
 ---
 
