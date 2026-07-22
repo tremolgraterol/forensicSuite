@@ -96,6 +96,26 @@ El build se genera en formato **carpeta** (`onedir`) en `dist\windows\forensic_s
 
 > No uses `-OneFile`: no es compatible con el archivo `forensic_suite.spec`. El formato por carpeta facilita pruebas y evita la compresion de binarios asociada a algunas alertas heuristicas.
 
+### Ejecutar un `.exe` sin firma (SmartScreen)
+
+Todos los ejecutables generados por PyInstaller sin un certificado **Code Signing** serán marcados por Windows como de origen desconocido. Esto es normal y no indica malware.
+
+#### Opción A: Desde el cuadro de diálogo de Windows
+1. Haz doble clic en `forensic_suite.exe`.
+2. Si aparece **"Windows protegió tu PC"** o **Microsoft Defender SmartScreen**, pulsa **"Más información"**.
+3. Pulsa **"Ejecutar de todos modos"**.
+
+#### Opción B: Desbloquear con PowerShell (como usuario normal)
+```powershell
+Unblock-File -Path "dist\windows\forensic_suite\forensic_suite.exe"
+```
+
+#### Opción C: Propiedades del archivo
+1. Haz clic derecho en `forensic_suite.exe` → **Propiedades**.
+2. Marca la casilla **"Desbloquear"** (si aparece) y acepta.
+
+> **Para distribución pública** se recomienda firmar el ejecutable con un certificado Authenticode (de pago, por ejemplo DigiCert, Sectigo o Certum), pero para uso educativo y de laboratorio no es obligatorio.
+
 ## Pruebas locales y alertas de Microsoft Defender
 
 Los ejecutables nuevos creados con PyInstaller y sin firma Authenticode pueden ser bloqueados por Microsoft Defender o Smart App Control con detecciones genericas, por ejemplo `Trojan:Win32/Sabsik.TE.A!ml`. Una deteccion heuristica no confirma por si sola que el proyecto tenga malware, pero el archivo debe verificarse antes de ejecutarse.
