@@ -2,7 +2,7 @@
 
 Bienvenido a la wiki de **ForensicSuite**, un framework de análisis forense digital con cadena de custodia MP 2017 y auditoría firmada.
 
-> **Proyecto educativo** del curso de Informática Forense — Grupo Lazarus Venezuela.
+> **Proyecto educativo** de la CERTIFICACIÓN EN INFORMÁTICA FORENSE 2026.
 
 ## Enlaces rápidos
 
