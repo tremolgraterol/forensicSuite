@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name="forensic-suite",
     version="2.0.0",
-    description="Framework de Analisis Forense Digital con cadena de custodia MP 2017",
+    description="Framework de Análisis Forense Digital con cadena de custodia MP 2017 y auditoría firmada. (Académico)",
     author="Tr3w01",
     python_requires=">=3.9",
     packages=find_packages(),
