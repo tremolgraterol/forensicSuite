@@ -5,6 +5,7 @@ Framework de Analisis Forense Digital con cadena de custodia MP 2017 y auditorí
 
 ![Build Windows](https://github.com/tremolgraterol/forensicSuite/actions/workflows/build-windows.yml/badge.svg)
 [![Wiki](https://img.shields.io/badge/docs-Wiki-blue)](https://github.com/tremolgraterol/forensicSuite/wiki)
+[![Discussions](https://img.shields.io/badge/discussions-Activas-green)](https://github.com/tremolgraterol/forensicSuite/discussions)
 
 ---
 
@@ -399,6 +400,16 @@ sudo forensic_suite daemon uninstall
 - NIST SP 800-86: Guide to Integrating Forensic Techniques
 - RFC 3161: Internet X.509 PKI Time-Stamp Protocol
 - RFC 3227: Guidelines for Evidence Collection and Archiving
+
+---
+
+## Comunidad y soporte
+
+- **Wiki**: https://github.com/tremolgraterol/forensicSuite/wiki
+- **Discusiones**: https://github.com/tremolgraterol/forensicSuite/discussions
+- **Reportar errores**: https://github.com/tremolgraterol/forensicSuite/issues
+
+Usa las **Discussions** para preguntas generales, compartir experiencias o proponer mejoras. Usa **Issues** solo para reportar bugs.
 
 ---
 
