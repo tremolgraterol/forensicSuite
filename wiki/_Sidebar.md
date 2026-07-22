@@ -1,0 +1,6 @@
+- [Inicio](Home)
+- [Descargas](Releases)
+- [Instalación Linux](Instalacion-Linux)
+- [Instalación Windows](Instalacion-Windows)
+- [Comandos y ejemplos](Comandos)
+- [Preguntas frecuentes](FAQ)

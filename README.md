@@ -4,6 +4,7 @@ Author: Alexander Graterol
 Framework de Analisis Forense Digital con cadena de custodia MP 2017 y auditoría firmada.
 
 ![Build Windows](https://github.com/tremolgraterol/forensicSuite/actions/workflows/build-windows.yml/badge.svg)
+[![Wiki](https://img.shields.io/badge/docs-Wiki-blue)](https://github.com/tremolgraterol/forensicSuite/wiki)
 
 ---
 
