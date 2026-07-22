@@ -40,7 +40,7 @@ Info "Python detectado: $pythonVersion"
 
 Info "Instalando dependencias..."
 & $python -m pip install --upgrade pip pyinstaller wheel setuptools
-& $python -m pip install -e "$projectRoot[full]"
+& $python -m pip install -e "$projectRoot"
 
 Info "Verificando Volatility3..."
 & $python -m pip install volatility3 pefile
