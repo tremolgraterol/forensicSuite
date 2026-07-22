@@ -408,6 +408,8 @@ sudo forensic_suite daemon uninstall
 - **Wiki**: https://github.com/tremolgraterol/forensicSuite/wiki
 - **Discusiones**: https://github.com/tremolgraterol/forensicSuite/discussions
 - **Reportar errores**: https://github.com/tremolgraterol/forensicSuite/issues
+- **Cómo contribuir**: ver [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- **Historial de cambios**: ver [`CHANGELOG.md`](CHANGELOG.md)
 - **Reportar vulnerabilidades**: ver [`SECURITY.md`](SECURITY.md)
 - **Código de conducta**: ver [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
 - **Licencia**: MIT — ver [`LICENSE`](LICENSE)
