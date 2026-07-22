@@ -18,6 +18,7 @@ setup(
         "console_scripts": [
             "forensic_suite=forensic_suite.__main__:main",
             "fs=forensic_suite.__main__:main",
+            "forensic_suite_win=forensic_suite_windows.win_main:main",
         ],
     },
     classifiers=[

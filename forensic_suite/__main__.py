@@ -765,6 +765,14 @@ def cmd_interact(args):
 
 
 def main():
+    # En Windows redirigir al CLI especifico de Windows para evitar comandos
+    # como lsblk o blockdev que no existen en ese sistema.
+    if sys.platform.startswith("win"):
+        import subprocess
+        return subprocess.run(
+            [sys.executable, "-m", "forensic_suite_windows.win_main"] + sys.argv[1:]
+        ).returncode
+
     parser = argparse.ArgumentParser(
         prog="forensic_suite",
         description="ForensicSuite - Framework de Analisis Forense Digital",
