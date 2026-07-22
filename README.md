@@ -410,6 +410,7 @@ sudo forensic_suite daemon uninstall
 - **Reportar errores**: https://github.com/tremolgraterol/forensicSuite/issues
 - **Reportar vulnerabilidades**: ver [`SECURITY.md`](SECURITY.md)
 - **Código de conducta**: ver [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
+- **Licencia**: MIT — ver [`LICENSE`](LICENSE)
 
 Usa las **Discussions** para preguntas generales, compartir experiencias o proponer mejoras. Usa **Issues** solo para reportar bugs.
 
