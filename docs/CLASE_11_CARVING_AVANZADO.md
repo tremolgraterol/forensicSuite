@@ -1,6 +1,6 @@
 # CLASE 11: Carving Avanzado con Scalpel, Bulk Extractor y Expresiones Regulares
 
-> Contenido extraido de la clase 11 de la CERTIFICACIÓN EN INFORMÁTICA FORENSE 2026.
+> Contenido extraido de la clase 11 de la CERTIFICACIÓN EN INFORMÁTICA FORENSE 2026, ofrecida por [Lazarus Venezuela](https://www.lazarus.com.ve/).
 
 ## Objetivos de la Clase
 

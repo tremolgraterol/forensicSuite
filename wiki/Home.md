@@ -2,7 +2,7 @@
 
 Bienvenido a la wiki de **ForensicSuite**, un framework de análisis forense digital con cadena de custodia MP 2017 y auditoría firmada.
 
-> **Proyecto educativo** de la CERTIFICACIÓN EN INFORMÁTICA FORENSE 2026.
+> **Proyecto educativo** de la CERTIFICACIÓN EN INFORMÁTICA FORENSE 2026, ofrecida por [Lazarus Venezuela](https://www.lazarus.com.ve/).
 
 ## Enlaces rápidos
 

@@ -11,7 +11,7 @@ Framework de Analisis Forense Digital con cadena de custodia MP 2017 y auditorí
 
 ## Aviso legal y descargo de responsabilidad
 
-Este proyecto tiene fines **exclusivamente educativos y de investigación académica** dentro del contexto de la **CERTIFICACIÓN EN INFORMÁTICA FORENSE 2026**.
+Este proyecto tiene fines **exclusivamente educativos y de investigación académica** dentro del contexto de la **CERTIFICACIÓN EN INFORMÁTICA FORENSE 2026**, ofrecida por [Lazarus Venezuela](https://www.lazarus.com.ve/).
 
 El autor y los colaboradores de ForensicSuite **no se hacen responsables** del uso indebido, malas prácticas, daños directos o indirectos, pérdida de información o consecuencias legales derivadas de la utilización de esta herramienta.
 
