@@ -92,11 +92,9 @@ pip install pyinstaller
 # Salida en: dist\windows\forensic_suite\forensic_suite.exe
 ```
 
-Para generar un solo archivo `.exe`:
+El build se genera en formato **carpeta** (`onedir`) en `dist\windows\forensic_suite\`. Distribuye y ejecuta la carpeta completa; no muevas solo `forensic_suite.exe`, porque necesita sus dependencias junto a ella.
 
-```powershell
-.\tools\build-windows.ps1 -OneFile
-```
+> No uses `-OneFile`: no es compatible con el archivo `forensic_suite.spec`. El formato por carpeta facilita pruebas y evita la compresion de binarios asociada a algunas alertas heuristicas.
 
 ## Pruebas locales y alertas de Microsoft Defender
 

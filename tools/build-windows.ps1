@@ -1,11 +1,10 @@
-#Requires -RunAsAdministrator
 <#
 .SYNOPSIS
     Construye forensic_suite.exe para Windows usando PyInstaller.
 .DESCRIPTION
     Empaqueta ForensicSuite como ejecutable portable de Windows.
     Requiere Python 3.9+, pip y PyInstaller.
-    Ejecutar en Windows PowerShell como Administrador.
+    Ejecutar desde Windows PowerShell sin privilegios administrativos.
 .EXAMPLE
     .\tools\build-windows.ps1
 #>
@@ -46,14 +45,14 @@ Info "Instalando dependencias..."
 Info "Verificando Volatility3..."
 & $python -m pip install volatility3 pefile
 
+if ($OneFile) {
+    Error "-OneFile no es compatible con forensic_suite.spec. Use el build por carpeta predeterminado."
+}
+
 Info "Construyendo ejecutable Windows con PyInstaller..."
 $specFile = Join-Path $projectRoot "forensic_suite.spec"
-# El spec usa forensic_suite_windows/win_main.py como punto de entrada en Windows
-if ($OneFile) {
-    & pyinstaller $specFile --clean --noconfirm --onefile --distpath "$OutputDir"
-} else {
-    & pyinstaller $specFile --clean --noconfirm --onedir --distpath "$OutputDir"
-}
+# El spec usa forensic_suite_windows/win_main.py y define el build onedir.
+& $python -m PyInstaller $specFile --clean --noconfirm --distpath "$OutputDir"
 
 if ($LASTEXITCODE -ne 0) {
     Error "PyInstaller fallo con codigo $LASTEXITCODE"
