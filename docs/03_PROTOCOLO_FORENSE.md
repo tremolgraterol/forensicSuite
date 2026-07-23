@@ -8,7 +8,9 @@ Pasos obligatorios para una extraccion de evidencia digital valida en Venezuela.
 - COPP Art. 191: Prueba ilicita = nulidad absoluta
 - LECD (G.O. 37.313): Delitos informaticos
 - Manual MP 2017: Formato de cadena de custodia
-- ISO 27037: Preservar evidencia en estado original
+- ISO 27037: Identificar, recolectar, adquirir y preservar evidencia digital
+- NIST SP 800-86: Integrar técnicas forenses en la respuesta a incidentes
+- RFC 3227: Priorizar la recolección conforme al orden de volatilidad
 
 ## Fase 0: Preparacion (antes del contacto)
 
@@ -28,6 +30,30 @@ forensic_suite perito --info
 gpg --version
 openssl version
 ```
+
+## Caso especial: evidencia en memoria de un sistema encendido
+
+La RAM solo existe mientras el equipo está encendido. Por ello, la adquisición se realiza **en el mismo equipo bajo examen**, no en una estación separada. Usar un segundo equipo es recomendable como estación de análisis, para preparar medios verificados y para conservar copias, pero no permite capturar la RAM del equipo objetivo.
+
+### Principio del observador
+
+Todo contacto con un sistema vivo lo modifica: ejecutar comandos, cargar LiME o AVML, escribir el dump y calcular hashes consume CPU, memoria y puede modificar registros, cachés, procesos, temporales y logs. Esta alteración es inevitable para preservar la evidencia volátil y **no debe ocultarse ni describirse como una adquisición sin cambios**.
+
+La justificación debe registrarse: la pérdida de la RAM al apagar o esperar supera la alteración controlada, mínima y reproducible producida por la adquisición. El perito debe emplear la herramienta previamente verificada, ejecutar la menor cantidad de acciones necesaria, conservar su hash/versión y dejar trazabilidad completa.
+
+### Secuencia documentada para RAM viva
+
+1. Obtener autorización y asignar identificador de caso.
+2. Registrar fecha/hora, zona horaria, identidad del operador, estado visible del equipo, conexiones, sesiones y medios conectados.
+3. Fotografiar o video-documentar la escena cuando corresponda.
+4. Verificar previamente el hash, versión y procedencia del recolector en un medio confiable.
+5. Ejecutar la fijación mínima necesaria del estado vivo (procesos, red, usuarios, módulos y hora), anotando cada comando y su hora.
+6. Adquirir la RAM en el mismo equipo mediante LiME/AVML; registrar herramienta, versión, parámetros, ruta destino, inicio, finalización, errores y alteraciones observadas.
+7. Calcular hashes del dump terminado, crear el acta/cadena de custodia y conservar el original sin analizarlo.
+8. Transferir el dump y su documentación a una estación de análisis; verificar hashes antes de trabajar únicamente sobre una copia.
+9. Solo después, según el caso, preservar/clonar el almacenamiento persistente o apagar el equipo.
+
+Este procedimiento aplica los principios de identificación, recolección, adquisición y preservación de ISO 27037. La validez no depende de una inexistente “no alteración”, sino de que la alteración necesaria esté justificada, minimizada, registrada y sea verificable.
 
 ## Fase 1: Bloqueo (NIVEL 0 - Critico)
 

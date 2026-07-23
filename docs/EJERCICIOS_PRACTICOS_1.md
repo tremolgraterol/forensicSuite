@@ -114,11 +114,11 @@ sudo blockdev --setro 1 /dev/sdX
 sudo blockdev --getro /dev/sdX
 ```
 
-### Paso 5: Probar
+### Paso 5: Verificar pasivamente
 ```bash
-sudo touch /dev/sdX
+sudo blockdev --getro /dev/sdX
 ```
-**Resultado:** Read-only / Exito (ERROR)
+**Resultado esperado:** `1` (solo lectura). No intentes escribir sobre la evidencia para comprobar el bloqueo.
 
 ### Paso 6: Desbloquear
 ```bash

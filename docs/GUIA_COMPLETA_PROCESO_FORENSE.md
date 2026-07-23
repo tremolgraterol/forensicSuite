@@ -105,7 +105,23 @@ La evidencia digital es **frágil**. A diferencia de una huella dactilar (que no
                     └─────────────────────────┘
 ```
 
-### 3.2 Flujo Completo
+### 3.2 Memoria viva: principio del observador y control documental
+
+La RAM se captura **en el mismo equipo encendido bajo examen**. Una estación separada sirve para preparar el recolector verificado, recibir el dump y realizar el análisis posterior, pero no puede adquirir la memoria del equipo objetivo.
+
+Toda interacción deja huella: los comandos de fijación, LiME/AVML, la escritura del dump y el cálculo de hashes cambian inevitablemente memoria, uso de CPU, cachés, registros o logs. Esto se justifica porque apagar o demorar la intervención destruye la evidencia volátil. La práctica correcta es minimizar, registrar y poder explicar esa alteración; no afirmar que el sistema no fue modificado.
+
+| Momento | Registro documental mínimo |
+|---------|----------------------------|
+| Antes del contacto | Autorización, caso, perito, fecha/hora y medio de destino preparado. |
+| Estado inicial | Fotografías si aplican, pantalla visible, sesiones, red, medios conectados y zona horaria. |
+| Fijación mínima | Comando ejecutado, hora, salida de procesos, red, usuarios, módulos y montaje. |
+| Adquisición | Herramienta, versión, hash del recolector, parámetros, ruta del dump, hora inicial/final, errores y alteraciones observadas. |
+| Preservación | SHA-256/MD5 del dump, acta, firma/sello si aplica, copia de trabajo y transferencia al analista. |
+
+Esta secuencia aplica ISO 27037 para identificación, recolección, adquisición y preservación, junto con el orden de volatilidad de RFC 3227. El análisis con Volatility se realiza después, sobre una copia verificada.
+
+### 3.3 Flujo Completo
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -333,34 +349,34 @@ sudo forensic_suite bloquear /dev/sdc
 
 **Sin la suite (manual):**
 ```bash
-# Verificar que esta bloqueado
+# Verificar pasivamente que está bloqueado
 sudo blockdev --getro /dev/sdc
 # Salida: 1
 
-# Intentar escribir (deberia fallar)
-sudo touch /dev/sdc
-# touch: cannot touch '/dev/sdc': Read-only file system
+# Confirmar el modo de montaje, si existe
+mount | grep /dev/sdc
 ```
+
+> No intentes escribir sobre la evidencia para probar el bloqueo: esa prueba puede alterar el medio o generar actividad no necesaria.
 
 ### 6.7 Sistema en caliente (computadora encendida)
 
-**NO bloquear directamente.** Primero:
+**No bloquees ni clones directamente el disco raíz del sistema que sigue en ejecución.** Primero documenta y adquiere la RAM en el equipo objetivo; registra la alteración inevitable. Luego conserva el dump original, verifica sus hashes y transfiérelo a una estación de análisis. La preservación del disco requiere un plan autorizado: apagar el equipo cuando sea procedente y adquirirlo desde un entorno Live o mediante un procedimiento de respuesta en vivo específicamente validado.
 
 ```bash
-# 1. Documentar estado
-ps aux > procesos.txt
-netstat -tulpn > conexiones.txt
+# 1. En el equipo objetivo: registrar estado, operador, hora y comandos
+#    La fijación mínima modifica el sistema y debe constar en el acta.
+ps aux > /medio_verificado/procesos.txt
+netstat -tulpn > /medio_verificado/conexiones.txt
 
-# 2. Volcado de memoria (URGENTE)
+# 2. Adquirir RAM en el mismo equipo (urgente)
 sudo mforense acquire
 # o
-sudo avml /tmp/memoria.avml
+sudo avml /medio_verificado/memoria.avml
 
-# 3. DESPUES bloquear disco
-sudo blockdev --setro 1 /dev/sda
-
-# 4. Clonar
-sudo dcfldd if=/dev/sda of=/backup/clona.raw bs=4M
+# 3. Calcular hashes y documentar la transferencia del dump.
+# 4. Analizar solo una copia verificada en una estación separada.
+# 5. Para el disco, adquirir después desde un USB Live o según el plan autorizado.
 ```
 
 ### 6.8 Que pasa si no bloqueas?
@@ -413,25 +429,35 @@ ls -lh /evidencia/usb_clona.raw
 
 ### 7.4 Volcado de memoria RAM
 
+La adquisición ocurre en el **equipo vivo investigado**. Antes de ejecutar el recolector, fija y registra el estado mínimo indispensable; cada comando es una modificación inevitable que debe quedar anotada en el acta.
+
 **Con forensic_suite:**
 ```bash
-# Verificar entorno
+# 1. En el equipo objetivo: verificar el recolector y el entorno
 forensic_suite memoria --verificar-entorno
 
-# Adquirir memoria
+# 2. Registrar en el acta: caso, operador, hora, herramienta/versión,
+#    hash del recolector, comandos, destino y alteraciones previstas.
+
+# 3. Adquirir; mforense genera fijación documental, hashes y cadena inicial
 sudo forensic_suite memoria --adquirir
+
+# 4. Transferir el dump y su documentación a la estación de análisis.
+#    Verificar hashes y analizar únicamente una copia de trabajo.
 ```
 
 **Sin la suite (manual):**
 ```bash
-# Con LiME
-sudo insmod lime.ko "path=/tmp/memoria.lime format=lime"
+# Registrar los comandos y hora antes de ejecutarlos.
+# Con LiME en el equipo objetivo
+sudo insmod lime.ko "path=/medio_verificado/memoria.lime format=lime"
 
-# Con AVML
-sudo avml /tmp/memoria.avml
+# O con AVML en el equipo objetivo
+sudo avml /medio_verificado/memoria.avml
 
-# Verificar
-ls -lh /tmp/memoria.*
+# Al terminar, calcular y registrar hashes del dump
+sha256sum /medio_verificado/memoria.*
+md5sum /medio_verificado/memoria.*
 ```
 
 ### 7.5 Hashing de evidencia
@@ -712,26 +738,23 @@ ls /evidencia/recuperados/
 
 **Proceso:**
 ```bash
-# 1. NO APAGAR (primero volcado de memoria)
+# 1. NO APAGAR. En el servidor objetivo, documentar autorización,
+#    estado visible, hora, medios conectados y destino del dump.
+
+# 2. Fijación mínima y adquisición de RAM en el MISMO servidor.
+#    Registrar cada comando y la alteración inevitable en el acta.
 sudo forensic_suite memoria --adquirir
 
-# 2. Documentar procesos activos
-ps aux > /evidencia/procesos.txt
-netstat -tulpn > /evidencia/red.txt
+# 3. Verificar hash, registrar transferencia y mover el dump a la
+#    estación de análisis; conservar el original y usar una copia.
 
-# 3. AHORA si bloquear
-sudo forensic_suite bloquear /dev/sda
+# 4. Solo después preservar el almacenamiento según el plan autorizado.
+#    No bloquear el disco raíz de un sistema que aún está ejecutándose.
 
-# 4. Clonar
-sudo dcfldd if=/dev/sda of=/evidencia/disco.raw bs=4M
-
-# 5. Apagar
-sudo shutdown -h now
-
-# 6. Analizar memoria
+# 5. Analizar la copia de memoria en la estación de análisis
 forensic_suite memoria --analizar --dump /evidencia/memoria.raw
 
-# 7. Analizar disco
+# 6. Analizar la copia forense del disco
 forensic_suite carve /evidencia/disco.raw -p general -o /evidencia/recuperados
 ```
 

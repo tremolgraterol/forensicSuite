@@ -297,11 +297,9 @@ sudo blockdev --setro 1 /dev/sdb
 sudo blockdev --getro /dev/sdb
 # 1 = bloqueado
 # 0 = no bloqueado
-
-# Probar que funciona
-sudo touch /dev/sdb
-# Deberia decir: Read-only file system
 ```
+
+La verificación es pasiva: no intentes escribir sobre la evidencia para probar el bloqueo.
 
 ---
 
@@ -695,9 +693,20 @@ Volatility:  DISPONIBLE
 ```
 
 ### Adquirir memoria
+
+La RAM se adquiere en el **mismo equipo encendido bajo examen**. Una estación independiente se usa después para analizar una copia verificada del dump, no para capturar la RAM del equipo objetivo.
+
+Aplicar el principio del observador: cargar el recolector, ejecutar comandos, escribir el dump y calcular hashes altera inevitablemente el estado vivo. La intervención se justifica porque apagar o esperar destruye la evidencia volátil. Registra en el acta la autorización, caso, operador, fecha/hora, estado observado, hash y versión del recolector, comandos, parámetros, destino, inicio/finalización, errores y alteraciones observadas.
+
 ```bash
+# En el equipo objetivo, con un destino previamente preparado y documentado
 sudo forensic_suite memoria --adquirir
+
+# En la estación de análisis, verificar el dump transferido antes de trabajar
+forensic_suite memoria --verificar --dump memoria.raw
 ```
+
+`mforense` realiza fijación documental previa y genera hashes y cadena inicial. Conserva el dump original sin analizar y usa únicamente una copia de trabajo con hash verificado para Volatility.
 
 **Salida:**
 ```
@@ -870,25 +879,22 @@ forensic_suite verificar /evidencia/usb.raw.hash
 
 ### Ejemplo 2: Servidor encendido
 ```bash
-# 1. NO APAGAR - Primero memoria
+# 1. NO APAGAR. Documentar autorización, caso, hora, estado y medios conectados.
+
+# 2. En el MISMO servidor, fijar estado y adquirir RAM.
+#    Registrar los comandos, herramienta, parámetros y alteración inevitable.
 sudo forensic_suite memoria --adquirir
 
-# 2. Documentar procesos
-ps aux > /evidencia/procesos.txt
+# 3. Crear acta, verificar hash y transferir el dump a la estación de análisis.
+#    Conservar el original; analizar solo una copia de trabajo verificada.
 
-# 3. Bloquear disco
-sudo forensic_suite bloquear /dev/sda
+# 4. Preservar el disco según el plan autorizado.
+#    No bloquear el disco raíz mientras el servidor siga ejecutándose.
 
-# 4. Clonar disco
-sudo dcfldd if=/dev/sda of=/evidencia/disco.raw bs=4M
-
-# 5. Apagar
-sudo shutdown -h now
-
-# 6. Analizar memoria
+# 5. En la estación de análisis, analizar la copia de memoria
 forensic_suite memoria --analizar --dump /evidencia/memoria.raw
 
-# 7. Analizar disco
+# 6. Analizar la copia forense del disco
 forensic_suite carve /evidencia/disco.raw -p general -o /evidencia/recuperados
 ```
 

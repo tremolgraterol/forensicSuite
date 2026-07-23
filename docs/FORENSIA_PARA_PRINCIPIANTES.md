@@ -253,12 +253,14 @@ sudo blockdev --getro /dev/sdb
 # Si dice "0" = no bloqueado
 ```
 
-**Prueba de que funciona:**
+**Verificación pasiva:**
 ```bash
-# Intentar escribir (deberia fallar)
-sudo touch /dev/sdb
-# Salida: touch: cannot touch '/dev/sdb': Read-only file system
+# Confirmar que el bloqueo está activo sin intentar escribir en la evidencia
+sudo blockdev --getro /dev/sdb
+# Salida: 1 = bloqueado
 ```
+
+> Nunca escribas sobre la evidencia para comprobar el bloqueo: la verificación debe ser pasiva.
 
 ---
 
